@@ -1,0 +1,39 @@
+<svg width="800" height="400" xmlns="http://www.w3.org/2000/svg">
+  <!-- Background -->
+  <rect width="100%" height="100%" fill="#f8f9fa"/>
+
+  <!-- Title -->
+  <text x="400" y="40" font-family="Arial" font-size="20" text-anchor="middle" fill="#212529">VLA (Vision-Language-Action) Pipeline</text>
+
+  <!-- Components -->
+  <rect x="50" y="100" width="120" height="60" fill="#0d6efd" rx="10" stroke="#0b5ed7" stroke-width="2"/>
+  <text x="110" y="135" font-family="Arial" font-size="14" text-anchor="middle" fill="white">Voice Input</text>
+
+  <rect x="220" y="100" width="120" height="60" fill="#198754" rx="10" stroke="#157347" stroke-width="2"/>
+  <text x="280" y="135" font-family="Arial" font-size="14" text-anchor="middle" fill="white">Whisper STT</text>
+
+  <rect x="390" y="100" width="120" height="60" fill="#fd7e14" rx="10" stroke="#fd7e14" stroke-width="2"/>
+  <text x="450" y="135" font-family="Arial" font-size="14" text-anchor="middle" fill="white">LLM Planning</text>
+
+  <rect x="560" y="100" width="120" height="60" fill="#6f42c1" rx="10" stroke="#6f42c1" stroke-width="2"/>
+  <text x="620" y="135" font-family="Arial" font-size="14" text-anchor="middle" fill="white">ROS2 Actions</text>
+
+  <!-- Vision component -->
+  <rect x="390" y="220" width="120" height="60" fill="#dc3545" rx="10" stroke="#dc3545" stroke-width="2"/>
+  <text x="450" y="255" font-family="Arial" font-size="14" text-anchor="middle" fill="white">Vision</text>
+
+  <!-- Arrows -->
+  <line x1="170" y1="130" x2="220" y2="130" stroke="#212529" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="340" y1="130" x2="390" y2="130" stroke="#212529" stroke-width="2" marker-end="url(#arrow)"/>
+  <line x1="510" y1="130" x2="560" y2="130" stroke="#212529" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Vision arrow -->
+  <line x1="450" y1="220" x2="450" y2="160" stroke="#212529" stroke-width="2" marker-end="url(#arrow)"/>
+
+  <!-- Arrowhead definition -->
+  <defs>
+    <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L0,6 L9,3 z" fill="#212529"/>
+    </marker>
+  </defs>
+</svg>

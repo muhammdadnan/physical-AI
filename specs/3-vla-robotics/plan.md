@@ -1,31 +1,25 @@
-# Implementation Plan: [FEATURE]
+# Implementation Plan: Physical AI & Humanoid Robotics — Book + Integrated RAG Chatbot
 
-**Branch**: `[###-feature-name]` | **Date**: [DATE] | **Spec**: [link]
-**Input**: Feature specification from `/specs/[###-feature-name]/spec.md`
+**Branch**: `3-vla-robotics` | **Date**: 2025-12-07 | **Spec**: [link]
+**Input**: Feature specification from `/specs/3-vla-robotics/spec.md`
 
 **Note**: This template is filled in by the `/sp.plan` command. See `.specify/templates/commands/plan.md` for the execution workflow.
 
 ## Summary
 
-[Extract from feature spec: primary requirement + technical approach from research]
+Create a full Docusaurus-based textbook covering four modules of Physical AI & Humanoid Robotics with an integrated RAG Chatbot using OpenAI Agents/ChatKit SDKs, FastAPI, Neon Serverless Postgres, and Qdrant Cloud. The system will include four modules (ROS 2, Digital Twin, AI-Robot Brain, VLA) with a backend RAG system and deployment to GitHub Pages.
 
 ## Technical Context
 
-<!--
-  ACTION REQUIRED: Replace the content in this section with the technical details
-  for the project. The structure here is presented in advisory capacity to guide
-  the iteration process.
--->
-
-**Language/Version**: [e.g., Python 3.11, Swift 5.9, Rust 1.75 or NEEDS CLARIFICATION]  
-**Primary Dependencies**: [e.g., FastAPI, UIKit, LLVM or NEEDS CLARIFICATION]  
-**Storage**: [if applicable, e.g., PostgreSQL, CoreData, files or N/A]  
-**Testing**: [e.g., pytest, XCTest, cargo test or NEEDS CLARIFICATION]  
-**Target Platform**: [e.g., Linux server, iOS 15+, WASM or NEEDS CLARIFICATION]
-**Project Type**: [single/web/mobile - determines source structure]  
-**Performance Goals**: [domain-specific, e.g., 1000 req/s, 10k lines/sec, 60 fps or NEEDS CLARIFICATION]  
-**Constraints**: [domain-specific, e.g., <200ms p95, <100MB memory, offline-capable or NEEDS CLARIFICATION]  
-**Scale/Scope**: [domain-specific, e.g., 10k users, 1M LOC, 50 screens or NEEDS CLARIFICATION]
+**Language/Version**: Python 3.10+, Node.js 18+
+**Primary Dependencies**: Docusaurus v3, FastAPI, OpenAI SDK, Qdrant Cloud, Neon Serverless PostgreSQL, ChatKit SDK
+**Storage**: Qdrant Cloud for vector storage, Neon Serverless PostgreSQL for metadata and logs
+**Testing**: pytest for backend, Jest for frontend
+**Target Platform**: Web-based application deployed to GitHub Pages
+**Project Type**: Web (determines source structure)
+**Performance Goals**: < 2 sec latency on Qdrant Cloud Free Tier queries, ≥ 90% retrieval accuracy
+**Constraints**: Open-source tools only, GitHub Pages deployment, Free Tier services
+**Scale/Scope**: 4 learning modules, 150-250 pages equivalent, 10k+ users
 
 ## Constitution Check
 
@@ -54,7 +48,7 @@
 ### Documentation (this feature)
 
 ```text
-specs/[###-feature]/
+specs/3-vla-robotics/
 ├── plan.md              # This file (/sp.plan command output)
 ├── research.md          # Phase 0 output (/sp.plan command)
 ├── data-model.md        # Phase 1 output (/sp.plan command)
@@ -64,27 +58,9 @@ specs/[###-feature]/
 ```
 
 ### Source Code (repository root)
-<!--
-  ACTION REQUIRED: Replace the placeholder tree below with the concrete layout
-  for this feature. Delete unused options and expand the chosen structure with
-  real paths (e.g., apps/admin, packages/something). The delivered plan must
-  not include Option labels.
--->
 
 ```text
-# [REMOVE IF UNUSED] Option 1: Single project (DEFAULT)
-src/
-├── models/
-├── services/
-├── cli/
-└── lib/
-
-tests/
-├── contract/
-├── integration/
-└── unit/
-
-# [REMOVE IF UNUSED] Option 2: Web application (when "frontend" + "backend" detected)
+# Web application (when "frontend" + "backend" detected)
 backend/
 ├── src/
 │   ├── models/
@@ -93,22 +69,24 @@ backend/
 └── tests/
 
 frontend/
+├── docs/                # Docusaurus documentation (modules)
+├── static/              # Images, diagrams
 ├── src/
 │   ├── components/
 │   ├── pages/
 │   └── services/
 └── tests/
 
-# [REMOVE IF UNUSED] Option 3: Mobile + API (when "iOS/Android" detected)
-api/
-└── [same as backend above]
+rag/                    # RAG backend
+├── api/
+├── embeddings/
+└── storage/
 
-ios/ or android/
-└── [platform-specific structure: feature modules, UI flows, platform tests]
+scripts/                # Automation scripts
+└── [build, deploy, etc.]
 ```
 
-**Structure Decision**: [Document the selected structure and reference the real
-directories captured above]
+**Structure Decision**: Web application with separate frontend (Docusaurus-based book) and backend (FastAPI RAG service) with additional rag/ directory for RAG-specific components and scripts/ for automation.
 
 ## Complexity Tracking
 

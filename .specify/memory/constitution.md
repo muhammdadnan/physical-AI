@@ -1,55 +1,54 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!-- SYNC IMPACT REPORT:
+Version change: 1.0.0 → 1.1.0
+Modified principles: None (new constitution)
+Added sections: All principles and sections for Physical AI & Humanoid Robotics project
+Removed sections: Template placeholders
+Templates requiring updates:
+- .specify/templates/plan-template.md ✅ updated
+- .specify/templates/spec-template.md ✅ updated
+- .specify/templates/tasks-template.md ✅ updated
+- .specify/templates/commands/*.md ⚠ pending
+Follow-up TODOs: None
+-->
+
+# AI-generated Docusaurus book + integrated  RAG Chatbot on Physical AI & Humanoid Robotics Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### Technical Accuracy
+All explanations and code examples must be technically correct according to official ROS 2, Gazebo, Isaac Sim, Nav2, and VLA (Vision-Language-Action) documentation. Every concept, API usage, and implementation detail must align with current best practices and official specifications.
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+### Educational Clarity
+Content must be designed for students with intermediate programming and AI backgrounds, emphasizing consistency and clarity. All materials should follow a modular structure aligned with 4 learning modules to facilitate progressive learning.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+### Hands-On Reproducibility
+All code examples and projects must be reproducible using open-source tools in modern environments: ROS 2 Humble, Python 3.10+, and Isaac Sim latest stable. Every example should be verified to run in appropriate simulators (Gazebo/Isaac/ROS 2).
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### Modular Architecture
+The book and chatbot must maintain high-level coherence with a modular structure that supports independent learning modules. Both the Docusaurus-based book (v3, Markdown/MDX) and the FastAPI-based chatbot backend must follow industry-standard architectural practices.
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+### Open Source Compliance
+All components must use open-source tools and libraries wherever possible. The book must be fully deployable on GitHub Pages, and the chatbot architecture must follow industry practices using OpenAI Agents/ChatKit SDK, Qdrant Cloud (Free Tier) for vector storage, and Neon Serverless Postgres for metadata and logs.
 
-### [PRINCIPLE_6_NAME]
+### RAG Excellence
+The Retrieval-Augmented Generation system must achieve high standards: ≥ 90% retrieval accuracy on test prompts with latency < 2 sec on Qdrant Cloud Free Tier queries. The system must support embeddings, metadata filtering, and top-k retrieval.
 
+## Content Standards
 
-[PRINCIPLE__DESCRIPTION]
+Book length must be minimum 150–250 pages equivalent in Docusaurus MDX format. Each module must include concepts, workflow diagrams, 5–10 runnable code samples, and 2–3 mini-projects. The capstone project chapter must include voice-to-action pipeline, navigation + VSLAM process, object detection + manipulation steps, and end-to-end ROS 2 action planning example.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+All diagrams must be AI-generated or tool-generated with exportable sources. The RAG pipeline must support embeddings, metadata filtering, and top-k retrieval with industry-standard practices.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+## Development Workflow
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+All code samples must be verified to run in appropriate simulators (Gazebo/Isaac/ROS 2). The chatbot must be embedded in the site with accurate retrieval from the book, ability to answer questions only from user-selected text, and streaming responses. The book must successfully build and deploy via GitHub Pages with no Docusaurus build errors.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+Each module must follow a consistent structure with concepts, diagrams, code samples, and mini-projects. The capstone project must integrate all key concepts from the four learning modules.
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution governs all development decisions for the Physical AI & Humanoid Robotics book and RAG chatbot project. All implementations must comply with the technical accuracy, educational clarity, reproducibility, and architectural principles outlined above. Any deviation from these principles requires explicit justification and team approval.
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+Amendments to this constitution must document the rationale, impact assessment, and migration plan for existing code and documentation. All pull requests and reviews must verify compliance with these principles before merging.
+
+**Version**: 1.1.0 | **Ratified**: 2025-12-07 | **Last Amended**: 2025-12-07

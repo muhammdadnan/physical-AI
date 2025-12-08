@@ -1,0 +1,498 @@
+# Task Decomposition Examples
+
+This chapter provides practical examples of LLM-based task decomposition for various types of robotic commands, from simple navigation to complex multi-step operations.
+
+## Simple Navigation Tasks
+
+### Example 1: Basic Navigation
+**Goal**: "Go to the kitchen"
+
+**Decomposed Plan**:
+```json
+{
+  "sub_tasks": [
+    {
+      "action": "get_map_location",
+      "parameters": {
+        "location": "kitchen"
+      },
+      "description": "Get the coordinates for the kitchen location",
+      "required_capabilities": ["navigation", "map"]
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {
+        "target": "kitchen_coordinates",
+        "speed": 0.5,
+        "avoid_obstacles": true
+      },
+      "description": "Navigate to the kitchen using Nav2",
+      "required_capabilities": ["navigation"]
+    }
+  ]
+}
+```
+
+### Example 2: Navigation with Waypoints
+**Goal**: "Go to the kitchen via the living room"
+
+**Decomposed Plan**:
+```json
+{
+  "sub_tasks": [
+    {
+      "action": "get_map_location",
+      "parameters": {"location": "living_room"},
+      "description": "Get the coordinates for the living room",
+      "required_capabilities": ["map"]
+    },
+    {
+      "action": "get_map_location",
+      "parameters": {"location": "kitchen"},
+      "description": "Get the coordinates for the kitchen",
+      "required_capabilities": ["map"]
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {"target": "living_room_coordinates"},
+      "description": "Navigate to the living room first",
+      "required_capabilities": ["navigation"]
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {"target": "kitchen_coordinates"},
+      "description": "Navigate from living room to kitchen",
+      "required_capabilities": ["navigation"]
+    }
+  ]
+}
+```
+
+## Object Manipulation Tasks
+
+### Example 3: Simple Object Pickup
+**Goal**: "Pick up the red cup"
+
+**Decomposed Plan**:
+```json
+{
+  "sub_tasks": [
+    {
+      "action": "locate_object",
+      "parameters": {
+        "object_type": "cup",
+        "color": "red",
+        "search_area": "table"
+      },
+      "description": "Find the red cup using vision system",
+      "required_capabilities": ["vision", "object_detection"]
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {
+        "target": "cup_location",
+        "approach_angle": 0.0,
+        "safe_distance": 0.5
+      },
+      "description": "Move to a position where the cup can be grasped",
+      "required_capabilities": ["navigation"]
+    },
+    {
+      "action": "grasp_object",
+      "parameters": {
+        "object_id": "red_cup",
+        "grasp_type": "top",
+        "force_limit": 10.0
+      },
+      "description": "Pick up the red cup",
+      "required_capabilities": ["manipulation"]
+    }
+  ]
+}
+```
+
+### Example 4: Object Transport
+**Goal**: "Bring me the blue bottle from the table"
+
+**Decomposed Plan**:
+```json
+{
+  "sub_tasks": [
+    {
+      "action": "locate_object",
+      "parameters": {
+        "object_type": "bottle",
+        "color": "blue",
+        "location": "table"
+      },
+      "description": "Find the blue bottle on the table",
+      "required_capabilities": ["vision", "object_detection"]
+    },
+    {
+      "action": "get_location",
+      "parameters": {"location_type": "user"},
+      "description": "Get the user's current location",
+      "required_capabilities": ["localization"]
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {"target": "bottle_location"},
+      "description": "Move to the bottle's location",
+      "required_capabilities": ["navigation"]
+    },
+    {
+      "action": "grasp_object",
+      "parameters": {
+        "object_id": "blue_bottle",
+        "grasp_type": "side"
+      },
+      "description": "Pick up the blue bottle",
+      "required_capabilities": ["manipulation"]
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {"target": "user_location"},
+      "description": "Move to the user",
+      "required_capabilities": ["navigation"]
+    },
+    {
+      "action": "place_object",
+      "parameters": {
+        "object_id": "blue_bottle",
+        "location": "delivery_position",
+        "placement_type": "gently"
+      },
+      "description": "Place the bottle where the user can reach it",
+      "required_capabilities": ["manipulation"]
+    }
+  ]
+}
+```
+
+## Complex Multi-Step Tasks
+
+### Example 5: Room Cleaning
+**Goal**: "Clean the room"
+
+**Decomposed Plan**:
+```json
+{
+  "sub_tasks": [
+    {
+      "action": "get_environment_map",
+      "parameters": {"room": "current"},
+      "description": "Get a map of the current room",
+      "required_capabilities": ["slam", "mapping"]
+    },
+    {
+      "action": "detect_trash_objects",
+      "parameters": {
+        "object_types": ["bottle", "cup", "paper", "box"],
+        "search_area": "room_map"
+      },
+      "description": "Identify all trash objects in the room",
+      "required_capabilities": ["vision", "object_detection"]
+    },
+    {
+      "action": "get_location",
+      "parameters": {"location_type": "trash_bin"},
+      "description": "Find the location of the trash bin",
+      "required_capabilities": ["localization"]
+    },
+    {
+      "action": "loop_start",
+      "parameters": {"items": "trash_objects"},
+      "description": "Start processing each trash item"
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {"target": "current_trash_location"},
+      "description": "Move to the current trash item",
+      "required_capabilities": ["navigation"]
+    },
+    {
+      "action": "grasp_object",
+      "parameters": {"object_id": "current_trash"},
+      "description": "Pick up the trash item",
+      "required_capabilities": ["manipulation"]
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {"target": "trash_bin_location"},
+      "description": "Move to the trash bin",
+      "required_capabilities": ["navigation"]
+    },
+    {
+      "action": "place_object",
+      "parameters": {"object_id": "current_trash", "location": "trash_bin"},
+      "description": "Dispose of the trash item",
+      "required_capabilities": ["manipulation"]
+    },
+    {
+      "action": "loop_end",
+      "parameters": {},
+      "description": "End of trash processing loop"
+    }
+  ]
+}
+```
+
+### Example 6: Table Setting
+**Goal**: "Set the table for dinner (4 people)"
+
+**Decomposed Plan**:
+```json
+{
+  "sub_tasks": [
+    {
+      "action": "get_location",
+      "parameters": {"location_type": "dining_table"},
+      "description": "Locate the dining table",
+      "required_capabilities": ["localization", "object_detection"]
+    },
+    {
+      "action": "calculate_place_settings",
+      "parameters": {
+        "table_shape": "rectangle",
+        "num_people": 4,
+        "place_setting_template": "formal"
+      },
+      "description": "Calculate positions for 4 place settings",
+      "required_capabilities": ["geometry", "planning"]
+    },
+    {
+      "action": "get_object_list",
+      "parameters": {
+        "object_types": ["plate", "fork", "knife", "glass"],
+        "quantity": 4
+      },
+      "description": "Identify required objects for 4 place settings",
+      "required_capabilities": ["object_detection", "inventory"]
+    },
+    {
+      "action": "loop_start",
+      "parameters": {"items": "place_settings"},
+      "description": "Start setting each place"
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {"target": "storage_location"},
+      "description": "Go to where tableware is stored",
+      "required_capabilities": ["navigation"]
+    },
+    {
+      "action": "grasp_object",
+      "parameters": {"object_id": "plate_1", "grasp_type": "edge"},
+      "description": "Pick up a plate",
+      "required_capabilities": ["manipulation"]
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {"target": "place_setting_position"},
+      "description": "Move to the place setting location",
+      "required_capabilities": ["navigation"]
+    },
+    {
+      "action": "place_object",
+      "parameters": {
+        "object_id": "plate_1",
+        "location": "place_setting_position",
+        "orientation": "upright"
+      },
+      "description": "Place the plate at the setting location",
+      "required_capabilities": ["manipulation"]
+    },
+    {
+      "action": "grasp_object",
+      "parameters": {"object_id": "fork_1", "grasp_type": "handle"},
+      "description": "Pick up a fork",
+      "required_capabilities": ["manipulation"]
+    },
+    {
+      "action": "place_object",
+      "parameters": {
+        "object_id": "fork_1",
+        "location": "fork_position",
+        "orientation": "left_of_plate"
+      },
+      "description": "Place the fork to the left of the plate",
+      "required_capabilities": ["manipulation"]
+    },
+    {
+      "action": "loop_end",
+      "parameters": {},
+      "description": "End of place setting loop"
+    }
+  ]
+}
+```
+
+## Safety and Error Handling Patterns
+
+### Example 7: Safe Navigation with Obstacle Avoidance
+**Goal**: "Go to the kitchen, avoid obstacles"
+
+**Decomposed Plan**:
+```json
+{
+  "sub_tasks": [
+    {
+      "action": "get_map_location",
+      "parameters": {"location": "kitchen"},
+      "description": "Get the kitchen coordinates",
+      "required_capabilities": ["map"]
+    },
+    {
+      "action": "check_path_clear",
+      "parameters": {"path": "to_kitchen"},
+      "description": "Verify the path to kitchen is clear of obstacles",
+      "required_capabilities": ["navigation", "obstacle_detection"]
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {
+        "target": "kitchen_coordinates",
+        "speed": 0.3,
+        "avoid_obstacles": true,
+        "max_retries": 3
+      },
+      "description": "Navigate to kitchen with obstacle avoidance",
+      "required_capabilities": ["navigation", "lidar", "avoidance"]
+    },
+    {
+      "action": "verify_location",
+      "parameters": {"expected_location": "kitchen"},
+      "description": "Confirm arrival at kitchen",
+      "required_capabilities": ["localization", "verification"]
+    }
+  ]
+}
+```
+
+### Example 8: Error Recovery in Manipulation
+**Goal**: "Pick up the cup and place it on the shelf"
+
+**Decomposed Plan**:
+```json
+{
+  "sub_tasks": [
+    {
+      "action": "locate_object",
+      "parameters": {"object_type": "cup", "location": "table"},
+      "description": "Find the cup on the table",
+      "required_capabilities": ["vision", "object_detection"]
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {"target": "cup_location"},
+      "description": "Move to the cup",
+      "required_capabilities": ["navigation"]
+    },
+    {
+      "action": "grasp_object",
+      "parameters": {"object_id": "cup", "grasp_type": "top"},
+      "description": "Attempt to pick up the cup",
+      "required_capabilities": ["manipulation"]
+    },
+    {
+      "action": "verify_grasp_success",
+      "parameters": {"object_id": "cup"},
+      "description": "Check if the cup was successfully grasped",
+      "required_capabilities": ["force_sensing", "verification"]
+    },
+    {
+      "action": "conditional",
+      "parameters": {
+        "condition": "grasp_failed",
+        "then": [
+          {
+            "action": "retry_grasp",
+            "parameters": {"object_id": "cup", "grasp_type": "side"},
+            "description": "Try a different grasp approach"
+          }
+        ]
+      },
+      "description": "Handle case where grasp fails",
+      "required_capabilities": ["manipulation", "conditionals"]
+    },
+    {
+      "action": "get_location",
+      "parameters": {"location_type": "shelf"},
+      "description": "Get the shelf location",
+      "required_capabilities": ["localization"]
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {"target": "shelf_location"},
+      "description": "Move to the shelf",
+      "required_capabilities": ["navigation"]
+    },
+    {
+      "action": "place_object",
+      "parameters": {"object_id": "cup", "location": "shelf", "height": 1.2},
+      "description": "Place the cup on the shelf",
+      "required_capabilities": ["manipulation"]
+    }
+  ]
+}
+```
+
+## Dynamic Plan Adaptation
+
+### Example 9: Context-Aware Planning
+**Goal**: "Bring me coffee" with context that user is in meeting room
+
+**Decomposed Plan**:
+```json
+{
+  "sub_tasks": [
+    {
+      "action": "locate_kitchen_equipment",
+      "parameters": {"equipment": "coffee_maker"},
+      "description": "Find the coffee maker in the kitchen",
+      "required_capabilities": ["object_detection", "kitchen_map"]
+    },
+    {
+      "action": "check_coffee_availability",
+      "parameters": {"location": "kitchen"},
+      "description": "Verify coffee supplies are available",
+      "required_capabilities": ["object_detection", "inventory"]
+    },
+    {
+      "action": "prepare_coffee",
+      "parameters": {
+        "coffee_type": "black",
+        "quantity": 1,
+        "sugar": 0,
+        "cream": 0
+      },
+      "description": "Make a cup of coffee",
+      "required_capabilities": ["kitchen_robotics", "coffee_making"]
+    },
+    {
+      "action": "wait_for_completion",
+      "parameters": {"action": "coffee_preparation", "timeout": 300},
+      "description": "Wait for coffee to be ready",
+      "required_capabilities": ["timing", "monitoring"]
+    },
+    {
+      "action": "navigate_to",
+      "parameters": {"target": "meeting_room_location"},
+      "description": "Go to the meeting room where the user is",
+      "required_capabilities": ["navigation"]
+    },
+    {
+      "action": "deliver_object",
+      "parameters": {
+        "object_id": "coffee_cup",
+        "recipient": "user",
+        "delivery_method": "handoff"
+      },
+      "description": "Deliver the coffee to the user",
+      "required_capabilities": ["manipulation", "human_interaction"]
+    }
+  ]
+}
+```
+
+These examples demonstrate how LLMs can decompose high-level goals into detailed, executable action sequences that account for robot capabilities, environmental constraints, and safety considerations.

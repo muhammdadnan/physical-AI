@@ -48,9 +48,11 @@ description: "Task list template for feature implementation"
 
 **Purpose**: Project initialization and basic structure
 
-- [ ] T001 Create project structure per implementation plan
-- [ ] T002 Initialize [language] project with [framework] dependencies
-- [ ] T003 [P] Configure linting and formatting tools
+- [ ] T001 Create project structure per implementation plan with Docusaurus v3 for book and FastAPI for chatbot
+- [ ] T002 Initialize Python project with ROS 2 Humble, Isaac Sim, and Qdrant dependencies
+- [ ] T003 [P] Configure linting and formatting tools for Python, Markdown/MDX, and documentation
+- [ ] T004 [P] Setup GitHub Pages deployment configuration for Docusaurus book
+- [ ] T005 [P] Configure Qdrant Cloud (Free Tier) and Neon Serverless Postgres connections
 
 ---
 
@@ -62,12 +64,14 @@ description: "Task list template for feature implementation"
 
 Examples of foundational tasks (adjust based on your project):
 
-- [ ] T004 Setup database schema and migrations framework
-- [ ] T005 [P] Implement authentication/authorization framework
-- [ ] T006 [P] Setup API routing and middleware structure
-- [ ] T007 Create base models/entities that all stories depend on
-- [ ] T008 Configure error handling and logging infrastructure
-- [ ] T009 Setup environment configuration management
+- [ ] T006 Setup database schema and migrations framework for Neon Postgres
+- [ ] T007 [P] Implement RAG system with Qdrant vector storage
+- [ ] T008 [P] Setup FastAPI backend structure for chatbot
+- [ ] T009 Create base models/entities that all stories depend on (ROS 2 interfaces, Isaac Sim connections)
+- [ ] T010 Configure error handling and logging infrastructure for robotics simulation
+- [ ] T011 Setup environment configuration management for ROS 2 Humble, Isaac Sim
+- [ ] T012 [P] Implement Docusaurus v3 book structure with 4 learning modules
+- [ ] T013 Setup RAG pipeline with embeddings, metadata filtering, and top-k retrieval
 
 **Checkpoint**: Foundation ready - user story implementation can now begin in parallel
 
@@ -150,12 +154,15 @@ Examples of foundational tasks (adjust based on your project):
 
 **Purpose**: Improvements that affect multiple user stories
 
-- [ ] TXXX [P] Documentation updates in docs/
-- [ ] TXXX Code cleanup and refactoring
-- [ ] TXXX Performance optimization across all stories
-- [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/
-- [ ] TXXX Security hardening
-- [ ] TXXX Run quickstart.md validation
+- [ ] TXXX [P] Documentation updates in docs/ ensuring technical accuracy according to ROS 2, Gazebo, Isaac Sim, Nav2, and VLA documentation
+- [ ] TXXX Code cleanup and refactoring following open-source compliance standards
+- [ ] TXXX Performance optimization to achieve < 2 sec latency on Qdrant Cloud queries
+- [ ] TXXX [P] Additional unit tests (if requested) in tests/unit/ for ROS 2 Humble compatibility
+- [ ] TXXX Security hardening for RAG system and chatbot
+- [ ] TXXX Run quickstart.md validation for Isaac Sim and simulator compatibility
+- [ ] TXXX Verify book meets minimum 150-250 pages in Docusaurus MDX format
+- [ ] TXXX Ensure each module includes 5-10 runnable code samples and 2-3 mini-projects
+- [ ] TXXX Validate capstone project includes voice-to-action, navigation+VSLAM, object detection+manipulation, and ROS 2 action planning
 
 ---
 

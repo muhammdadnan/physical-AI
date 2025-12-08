@@ -84,16 +84,22 @@
 
 ### Functional Requirements
 
-- **FR-001**: System MUST [specific capability, e.g., "allow users to create accounts"]
-- **FR-002**: System MUST [specific capability, e.g., "validate email addresses"]  
-- **FR-003**: Users MUST be able to [key interaction, e.g., "reset their password"]
-- **FR-004**: System MUST [data requirement, e.g., "persist user preferences"]
-- **FR-005**: System MUST [behavior, e.g., "log all security events"]
+- **FR-001**: System MUST ensure technical accuracy according to official ROS 2, Gazebo, Isaac Sim, Nav2, and VLA documentation
+- **FR-002**: System MUST provide educational content designed for students with intermediate programming and AI backgrounds
+- **FR-003**: Users MUST be able to access reproducible code examples that run in ROS 2 Humble, Python 3.10+, and Isaac Sim latest stable
+- **FR-004**: System MUST support modular architecture aligned with 4 learning modules
+- **FR-005**: System MUST follow open-source compliance using tools deployable on GitHub Pages
+- **FR-006**: RAG system MUST achieve ≥ 90% retrieval accuracy on test prompts
+- **FR-007**: RAG system MUST respond with < 2 sec latency on Qdrant Cloud Free Tier queries
+- **FR-008**: System MUST support embeddings, metadata filtering, and top-k retrieval
+- **FR-009**: Book MUST be minimum 150–250 pages equivalent in Docusaurus MDX format
+- **FR-010**: Each module MUST include concepts, workflow diagrams, 5–10 runnable code samples, and 2–3 mini-projects
+- **FR-011**: Capstone project chapter MUST include voice-to-action pipeline, navigation + VSLAM process, object detection + manipulation steps, and end-to-end ROS 2 action planning example
 
 *Example of marking unclear requirements:*
 
-- **FR-006**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
-- **FR-007**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
+- **FR-012**: System MUST authenticate users via [NEEDS CLARIFICATION: auth method not specified - email/password, SSO, OAuth?]
+- **FR-013**: System MUST retain user data for [NEEDS CLARIFICATION: retention period not specified]
 
 ### Key Entities *(include if feature involves data)*
 

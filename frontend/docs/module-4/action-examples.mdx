@@ -1,0 +1,630 @@
+# Feedback Loop and Error Handling Examples
+
+This chapter provides practical examples of implementing feedback loops and error handling in the ROS 2 action execution pipeline, ensuring robust and reliable robot behavior.
+
+## Feedback Loop Implementation
+
+### Real-time Progress Monitoring
+
+```python
+import rclpy
+from rclpy.action import ActionClient
+from rclpy.node import Node
+from std_msgs.msg import String
+from geometry_msgs.msg import PoseStamped
+
+class FeedbackMonitoringNode(Node):
+    def __init__(self):
+        super().__init__('feedback_monitoring_node')
+
+        # Publisher for VLA system updates
+        self.progress_publisher = self.create_publisher(String, 'vla/progress_updates', 10)
+
+        # Action clients for different robot capabilities
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self.manip_client = ActionClient(self, FollowJointTrajectory, 'manipulator_controller/follow_joint_trajectory')
+
+    def execute_with_detailed_feedback(self, action_type, goal):
+        """Execute an action with detailed feedback reporting"""
+        if action_type == "navigation":
+            return self._execute_navigation_with_feedback(goal)
+        elif action_type == "manipulation":
+            return self._execute_manipulation_with_feedback(goal)
+        else:
+            raise ValueError(f"Unsupported action type: {action_type}")
+
+    def _execute_navigation_with_feedback(self, goal):
+        """Execute navigation with continuous feedback"""
+        self.nav_client.wait_for_server()
+
+        # Define feedback callback
+        def feedback_callback(feedback_msg):
+            # Calculate progress percentage
+            total_distance = self._calculate_total_distance(goal.pose)
+            remaining_distance = feedback_msg.feedback.distance_remaining
+            progress_percent = ((total_distance - remaining_distance) / total_distance) * 100
+
+            # Create feedback message for VLA system
+            feedback_data = {
+                "action_type": "navigation",
+                "task_id": goal.task_id if hasattr(goal, 'task_id') else "unknown",
+                "progress": progress_percent,
+                "distance_remaining": remaining_distance,
+                "current_pose": feedback_msg.feedback.current_pose,
+                "status": "in_progress",
+                "timestamp": self.get_clock().now().to_msg().sec
+            }
+
+            # Publish to VLA system
+            feedback_msg = String()
+            feedback_msg.data = json.dumps(feedback_data)
+            self.progress_publisher.publish(feedback_msg)
+
+            self.get_logger().info(f'Navigation progress: {progress_percent:.1f}% complete')
+
+        # Send goal with feedback callback
+        goal_future = self.nav_client.send_goal_async(
+            goal,
+            feedback_callback=feedback_callback
+        )
+
+        # Wait for result
+        rclpy.spin_until_future_complete(self, goal_future)
+        goal_handle = goal_future.result()
+
+        if goal_handle.accepted:
+            result_future = goal_handle.get_result_async()
+            rclpy.spin_until_future_complete(self, result_future)
+            return result_future.result().result
+        else:
+            raise RuntimeError("Navigation goal was rejected")
+
+    def _execute_manipulation_with_feedback(self, goal):
+        """Execute manipulation with detailed feedback"""
+        self.manip_client.wait_for_server()
+
+        def feedback_callback(feedback_msg):
+            # Calculate joint position progress
+            desired_positions = goal.trajectory.points[-1].positions
+            actual_positions = feedback_msg.feedback.actual.positions
+
+            # Calculate progress based on position error
+            position_errors = [abs(d - a) for d, a in zip(desired_positions, actual_positions)]
+            avg_error = sum(position_errors) / len(position_errors) if position_errors else 0
+
+            progress_percent = max(0, 100 - (avg_error * 100))  # Simplified calculation
+
+            feedback_data = {
+                "action_type": "manipulation",
+                "task_id": goal.task_id if hasattr(goal, 'task_id') else "unknown",
+                "progress": progress_percent,
+                "joint_errors": position_errors,
+                "current_joint_positions": actual_positions,
+                "status": "in_progress",
+                "timestamp": self.get_clock().now().to_msg().sec
+            }
+
+            feedback_msg_str = String()
+            feedback_msg_str.data = json.dumps(feedback_data)
+            self.progress_publisher.publish(feedback_msg_str)
+
+            self.get_logger().info(f'Manipulation progress: {progress_percent:.1f}% complete')
+
+        goal_future = self.manip_client.send_goal_async(
+            goal,
+            feedback_callback=feedback_callback
+        )
+
+        rclpy.spin_until_future_complete(self, goal_future)
+        goal_handle = goal_future.result()
+
+        if goal_handle.accepted:
+            result_future = goal_handle.get_result_async()
+            rclpy.spin_until_future_complete(self, result_future)
+            return result_future.result().result
+        else:
+            raise RuntimeError("Manipulation goal was rejected")
+```
+
+## Comprehensive Error Handling
+
+### Action-Level Error Handling
+
+```python
+class ActionErrorHandler:
+    def __init__(self):
+        self.error_recovery_strategies = {
+            "navigation_failure": self._recover_navigation_failure,
+            "manipulation_failure": self._recover_manipulation_failure,
+            "perception_failure": self._recover_perception_failure,
+            "communication_timeout": self._recover_communication_timeout
+        }
+
+    async def handle_action_error(self, action_type, error, context):
+        """Handle errors that occur during action execution"""
+        error_type = self._classify_error(error)
+
+        if error_type in self.error_recovery_strategies:
+            recovery_result = await self.error_recovery_strategies[error_type](action_type, context)
+            return recovery_result
+        else:
+            # No recovery strategy, return error
+            return {"success": False, "error": str(error), "recovered": False}
+
+    def _classify_error(self, error):
+        """Classify an error to determine appropriate recovery strategy"""
+        error_msg = str(error).lower()
+
+        if "navigation" in error_msg or "path" in error_msg or "obstacle" in error_msg:
+            return "navigation_failure"
+        elif "grasp" in error_msg or "manipulat" in error_msg or "joint" in error_msg:
+            return "manipulation_failure"
+        elif "detect" in error_msg or "vision" in error_msg or "object" in error_msg:
+            return "perception_failure"
+        elif "timeout" in error_msg or "connection" in error_msg:
+            return "communication_timeout"
+        else:
+            return "unknown_error"
+
+    async def _recover_navigation_failure(self, action_type, context):
+        """Recovery strategy for navigation failures"""
+        # Try alternative navigation approach
+        original_goal = context.get('original_goal')
+
+        if original_goal:
+            # Try with different planner
+            alternative_goal = original_goal.copy()
+            alternative_goal.planner_id = "alternative_planner"
+
+            # Execute with alternative parameters
+            # Implementation would call navigation action with new parameters
+            return {"success": True, "recovered": True, "method": "alternative_planner"}
+
+        return {"success": False, "recovered": False, "method": "none"}
+
+    async def _recover_manipulation_failure(self, action_type, context):
+        """Recovery strategy for manipulation failures"""
+        # Try different grasp approach
+        object_info = context.get('object_info')
+
+        if object_info:
+            original_grasp_type = object_info.get('grasp_type', 'default')
+            alternative_grasps = ['top_grasp', 'side_grasp', 'pinch_grasp']
+
+            # Try alternative grasp types
+            for grasp_type in alternative_grasps:
+                if grasp_type != original_grasp_type:
+                    # Attempt with alternative grasp
+                    # Implementation would call manipulation action with new parameters
+                    return {"success": True, "recovered": True, "method": f"alternative_grasp_{grasp_type}"}
+
+        return {"success": False, "recovered": False, "method": "none"}
+
+    async def _recover_perception_failure(self, action_type, context):
+        """Recovery strategy for perception failures"""
+        # Try different sensing approach
+        search_params = context.get('search_params', {})
+
+        # Change sensor parameters or position
+        new_search_params = search_params.copy()
+        new_search_params['sensor_angle'] = (search_params.get('sensor_angle', 0) + 45) % 360
+        new_search_params['confidence_threshold'] = max(0.1, search_params.get('confidence_threshold', 0.5) - 0.1)
+
+        # Retry perception with new parameters
+        return {"success": True, "recovered": True, "method": "modified_perception_params"}
+
+    async def _recover_communication_timeout(self, action_type, context):
+        """Recovery strategy for communication timeouts"""
+        # Retry with exponential backoff
+        import asyncio
+
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                # Wait before retry (exponential backoff)
+                await asyncio.sleep(2 ** attempt)
+
+                # Retry the original action
+                # Implementation would re-execute the action
+                return {"success": True, "recovered": True, "method": f"retry_attempt_{attempt + 1}"}
+            except Exception:
+                continue  # Continue to next retry attempt
+
+        return {"success": False, "recovered": False, "method": "max_retries_exceeded"}
+```
+
+## Sequence-Level Error Handling
+
+### Robust Action Sequence Execution
+
+```python
+class RobustSequenceExecutor:
+    def __init__(self):
+        self.action_executor = ActionErrorHandler()
+        self.max_retries_per_action = 3
+        self.continue_on_non_critical_errors = True
+
+    async def execute_sequence_with_error_handling(self, action_sequence, context):
+        """Execute a sequence of actions with comprehensive error handling"""
+        results = []
+        execution_context = context.copy()
+
+        for i, action in enumerate(action_sequence):
+            action_result = None
+            retry_count = 0
+            action_failed = False
+
+            while retry_count < self.max_retries_per_action and not action_failed:
+                try:
+                    # Execute the action
+                    action_result = await self._execute_single_action_with_feedback(
+                        action, execution_context
+                    )
+
+                    if self._is_successful(action_result):
+                        # Action succeeded, break retry loop
+                        break
+                    else:
+                        self.get_logger().warning(f"Action {i} failed on attempt {retry_count + 1}")
+
+                except Exception as e:
+                    self.get_logger().error(f"Action {i} execution error on attempt {retry_count + 1}: {e}")
+
+                    # Try error recovery
+                    recovery_result = await self.action_executor.handle_action_error(
+                        action.get('action_type', 'unknown'),
+                        e,
+                        {
+                            'original_action': action,
+                            'attempt': retry_count + 1,
+                            'context': execution_context
+                        }
+                    )
+
+                    if recovery_result.get('recovered', False):
+                        # Recovery successful, try again
+                        action_result = await self._execute_single_action_with_feedback(
+                            action, execution_context
+                        )
+                        if self._is_successful(action_result):
+                            break
+                    else:
+                        # Recovery failed, increment retry count
+                        retry_count += 1
+                        if retry_count >= self.max_retries_per_action:
+                            action_failed = True
+
+            # Process the result
+            action_outcome = {
+                "action_index": i,
+                "action": action,
+                "result": action_result,
+                "retry_count": retry_count,
+                "timestamp": time.time(),
+                "status": "failed" if action_failed else "completed"
+            }
+
+            results.append(action_outcome)
+
+            # Check if we should continue after failure
+            if action_failed and self._is_critical_action(action):
+                self.get_logger().error(f"Critical action {i} failed, stopping sequence execution")
+                break
+            elif action_failed and not self.continue_on_non_critical_errors:
+                self.get_logger().warning(f"Action {i} failed, stopping sequence execution")
+                break
+
+        return results
+
+    def _is_critical_action(self, action):
+        """Determine if an action failure should stop the entire sequence"""
+        critical_actions = ["navigate_to", "grasp_object", "emergency_stop"]
+        return action.get("action_type", "").split("/")[-1] in critical_actions
+
+    def _is_successful(self, result):
+        """Determine if an action result is successful"""
+        if isinstance(result, dict):
+            return result.get('success', False)
+        elif hasattr(result, 'success'):
+            return result.success
+        else:
+            # Default to successful if no explicit success indicator
+            return True
+
+    async def _execute_single_action_with_feedback(self, action, context):
+        """Execute a single action with feedback and monitoring"""
+        # This would interface with actual ROS 2 action clients
+        # For simulation, we'll return a mock result
+        import random
+
+        # Simulate success/failure based on action type
+        success_probability = 0.9 if action.get("action_type") != "complex_manipulation" else 0.7
+
+        success = random.random() < success_probability
+
+        return {
+            "success": success,
+            "action_type": action.get("action_type"),
+            "parameters": action.get("parameters"),
+            "execution_time": random.uniform(1.0, 5.0),
+            "details": f"Simulated execution of {action.get('action_type')}"
+        }
+```
+
+## Feedback Integration with VLA System
+
+### Real-time Status Updates
+
+```python
+import asyncio
+import websockets
+import json
+
+class VLAFeedbackIntegrator:
+    def __init__(self, vla_backend_url="ws://localhost:8000/ws/feedback"):
+        self.vla_backend_url = vla_backend_url
+        self.websocket = None
+
+    async def connect_to_vla_backend(self):
+        """Connect to the VLA backend for real-time feedback"""
+        try:
+            self.websocket = await websockets.connect(self.vla_backend_url)
+            self.get_logger().info(f"Connected to VLA backend at {self.vla_backend_url}")
+            return True
+        except Exception as e:
+            self.get_logger().error(f"Failed to connect to VLA backend: {e}")
+            return False
+
+    async def send_feedback(self, feedback_data):
+        """Send feedback data to the VLA backend"""
+        if self.websocket:
+            try:
+                await self.websocket.send(json.dumps(feedback_data))
+                return True
+            except Exception as e:
+                self.get_logger().error(f"Failed to send feedback: {e}")
+                return False
+        else:
+            self.get_logger().warning("No websocket connection to VLA backend")
+            return False
+
+    async def monitor_and_report(self, action_sequence_id, progress_callback=None):
+        """Monitor action execution and report progress to VLA backend"""
+        # Subscribe to ROS 2 feedback topics
+        feedback_subscribers = self._setup_feedback_subscribers()
+
+        async def feedback_handler(feedback_data):
+            # Enhance feedback with sequence information
+            enhanced_feedback = {
+                "sequence_id": action_sequence_id,
+                "feedback": feedback_data,
+                "timestamp": time.time(),
+                "source": "ros2_execution"
+            }
+
+            # Send to VLA backend
+            await self.send_feedback(enhanced_feedback)
+
+            # Call progress callback if provided
+            if progress_callback:
+                await progress_callback(enhanced_feedback)
+
+        # Monitor all feedback sources
+        tasks = []
+        for subscriber in feedback_subscribers:
+            task = asyncio.create_task(
+                self._monitor_subscriber(subscriber, feedback_handler)
+            )
+            tasks.append(task)
+
+        # Wait for all monitoring tasks
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+    def _setup_feedback_subscribers(self):
+        """Set up ROS 2 subscribers for different feedback types"""
+        # This would create actual ROS 2 subscriptions
+        # For example:
+        # - Navigation feedback from /navigate_to_pose/_action/feedback
+        # - Manipulation feedback from joint trajectory controller
+        # - System status from robot state publisher
+        return ["nav_feedback", "manip_feedback", "sys_status"]  # Mock subscribers
+
+    async def _monitor_subscriber(self, subscriber, callback):
+        """Monitor a single feedback subscriber"""
+        # Simulate receiving feedback
+        import random
+        while True:
+            # Simulate receiving feedback data
+            feedback_data = {
+                "subscriber": subscriber,
+                "data": f"Mock feedback from {subscriber}",
+                "value": random.uniform(0, 100)
+            }
+
+            await callback(feedback_data)
+            await asyncio.sleep(0.1)  # Update every 100ms
+```
+
+## Error Recovery Examples
+
+### Example 1: Navigation Error Recovery
+
+```python
+# Example of handling a navigation failure with recovery
+async def handle_navigation_error_example():
+    # Original navigation goal
+    original_goal = {
+        "target_pose": {"x": 5.0, "y": 3.0, "theta": 0.0},
+        "planner_id": "default_planner"
+    }
+
+    try:
+        # Attempt navigation
+        result = await execute_navigation(original_goal)
+        if not result.success:
+            raise RuntimeError("Navigation failed")
+    except RuntimeError as e:
+        print(f"Navigation failed: {e}")
+
+        # Try recovery with alternative approach
+        alternative_goal = original_goal.copy()
+        alternative_goal["planner_id"] = "alternative_planner"
+        alternative_goal["target_pose"]["x"] += 0.5  # Slightly different target
+
+        recovery_result = await execute_navigation(alternative_goal)
+
+        if recovery_result.success:
+            print("Navigation recovery successful")
+        else:
+            print("Navigation recovery failed, trying path-around strategy")
+            # Try going around the obstacle
+            path_around_result = await execute_navigation_path_around(original_goal)
+```
+
+### Example 2: Manipulation Error Recovery
+
+```python
+# Example of handling a manipulation failure with recovery
+async def handle_manipulation_error_example():
+    target_object = {
+        "id": "red_cup",
+        "pose": {"x": 1.0, "y": 2.0, "z": 0.8},
+        "grasp_type": "top_grasp"
+    }
+
+    try:
+        # Attempt grasp
+        result = await execute_grasp(target_object)
+        if not result.success:
+            raise RuntimeError("Grasp failed")
+    except RuntimeError as e:
+        print(f"Grasp failed: {e}")
+
+        # Try alternative grasp
+        alternative_object = target_object.copy()
+        alternative_object["grasp_type"] = "side_grasp"
+
+        recovery_result = await execute_grasp(alternative_object)
+
+        if recovery_result.success:
+            print("Grasp recovery successful with alternative approach")
+        else:
+            print("Grasp recovery failed, checking if object is graspable")
+            # Check object properties and try different approach
+            object_analysis = await analyze_object_properties(target_object["id"])
+
+            if object_analysis.get("is_graspable", False):
+                # Try a completely different grasp strategy
+                final_result = await execute_power_grasp(target_object)
+```
+
+## Integration Example: Complete VLA Execution Loop
+
+```python
+class CompleteVLAExecutionLoop:
+    def __init__(self):
+        self.mapping_service = ROS2MappingService()
+        self.sequence_executor = RobustSequenceExecutor()
+        self.feedback_integrator = VLAFeedbackIntegrator()
+        self.error_handler = ActionErrorHandler()
+
+    async def execute_vla_task(self, llm_plan, environment_context):
+        """Complete VLA task execution with all error handling and feedback"""
+        try:
+            # 1. Map LLM plan to ROS 2 actions
+            action_sequence = await self.mapping_service.map_plan_to_action_sequence(llm_plan)
+
+            # 2. Validate the sequence
+            is_valid, issues = await self.mapping_service.validate_action_sequence(action_sequence)
+            if not is_valid:
+                print(f"Action sequence validation issues: {issues}")
+
+            # 3. Connect to VLA feedback system
+            feedback_connected = await self.feedback_integrator.connect_to_vla_backend()
+
+            # 4. Execute with error handling and feedback
+            execution_results = await self.sequence_executor.execute_sequence_with_error_handling(
+                action_sequence.actions,
+                {
+                    "environment_context": environment_context,
+                    "sequence_id": action_sequence.id
+                }
+            )
+
+            # 5. Process results and send final feedback
+            final_status = self._analyze_execution_results(execution_results)
+
+            if feedback_connected:
+                await self.feedback_integrator.send_feedback({
+                    "sequence_id": action_sequence.id,
+                    "final_status": final_status,
+                    "execution_results": execution_results,
+                    "timestamp": time.time()
+                })
+
+            return {
+                "success": final_status["overall_success"],
+                "sequence_id": action_sequence.id,
+                "execution_results": execution_results,
+                "final_status": final_status
+            }
+
+        except Exception as e:
+            print(f"VLA task execution failed: {e}")
+            # Send error feedback to VLA system
+            if hasattr(self, 'feedback_integrator'):
+                await self.feedback_integrator.send_feedback({
+                    "error": str(e),
+                    "timestamp": time.time(),
+                    "status": "error"
+                })
+            raise
+
+# Usage example
+async def run_complete_vla_execution():
+    executor = CompleteVLAExecutionLoop()
+
+    # Example LLM plan (in practice, this would come from the planning service)
+    llm_plan = {
+        "id": "plan_123",
+        "goal": "Pick up the red cup and place it on the table",
+        "sub_tasks": [
+            {
+                "action": "locate_object",
+                "parameters": {"object_type": "cup", "color": "red"},
+                "description": "Find the red cup"
+            },
+            {
+                "action": "navigate_to",
+                "parameters": {"target": "cup_location"},
+                "description": "Move to the cup"
+            },
+            {
+                "action": "grasp_object",
+                "parameters": {"object_id": "red_cup"},
+                "description": "Pick up the cup"
+            },
+            {
+                "action": "navigate_to",
+                "parameters": {"target": "table_location"},
+                "description": "Move to the table"
+            },
+            {
+                "action": "place_object",
+                "parameters": {"object_id": "red_cup", "location": "table"},
+                "description": "Place the cup on the table"
+            }
+        ]
+    }
+
+    environment_context = {
+        "robot_position": {"x": 0.0, "y": 0.0, "theta": 0.0},
+        "known_objects": ["red_cup", "table"],
+        "obstacles": []
+    }
+
+    result = await executor.execute_vla_task(llm_plan, environment_context)
+    print(f"Execution completed: {result['success']}")
+```
+
+These examples demonstrate how to implement comprehensive feedback loops and error handling in the VLA system, ensuring robust execution of ROS 2 action sequences generated by LLM planning.
