@@ -18,7 +18,7 @@ slug: /intro
 <div class="homepage-content">
   <!-- Modules section with enhanced cards - Claude Code -->
   <section id="modules">
-    <h2 style="text-align: center; margin-bottom: 3rem;">Learning Modules</h2>
+    <h2 className="text-center margin-bottom--lg">Learning Modules</h2>
 
     <div class="module-card">
       <h3>🤖 Module 1: ROS 2 Fundamentals</h3>
@@ -58,9 +58,9 @@ slug: /intro
   </section>
 
   <!-- Call-to-action section - Claude Code -->
-  <section style="text-align: center; margin: 4rem 0; padding: 2rem; background: var(--ifm-color-secondary); border-radius: 12px;">
+  <section className="text--center margin-vert--xl padding--lg">
     <h2>Ready to Transform Your Robotics Skills?</h2>
     <p>Join thousands of developers mastering the cutting-edge technologies that power next-generation humanoid robots.</p>
-    <a class="hero-button primary" href="/docs/module-1/ros2-intro" style="display: inline-block; margin-top: 1rem;">Begin Your Journey</a>
+    <a class="hero-button primary button--primary" href="/docs/module-1/ros2-intro">Begin Your Journey</a>
   </section>
 </div>
