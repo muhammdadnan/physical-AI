@@ -1,6 +1,7 @@
 import webbrowser
 import time
 
+# Script to open the Physical AI & Humanoid Robotics frontend in the browser - Claude Code
 # URL of the Docusaurus frontend
 url = "http://localhost:3000/ai-native-book/"
 

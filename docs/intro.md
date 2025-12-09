@@ -2,6 +2,7 @@
 slug: /intro
 ---
 
+<!-- Enhanced hero banner section for Physical AI & Humanoid Robotics textbook - Claude Code -->
 <div class="hero-banner">
   <div class="container">
     <h1>Physical AI & Humanoid Robotics</h1>
@@ -15,6 +16,7 @@ slug: /intro
 </div>
 
 <div class="homepage-content">
+  <!-- Modules section with enhanced cards - Claude Code -->
   <section id="modules">
     <h2 style="text-align: center; margin-bottom: 3rem;">Learning Modules</h2>
 
@@ -55,6 +57,7 @@ slug: /intro
     </div>
   </section>
 
+  <!-- Call-to-action section - Claude Code -->
   <section style="text-align: center; margin: 4rem 0; padding: 2rem; background: var(--ifm-color-secondary); border-radius: 12px;">
     <h2>Ready to Transform Your Robotics Skills?</h2>
     <p>Join thousands of developers mastering the cutting-edge technologies that power next-generation humanoid robots.</p>

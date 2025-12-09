@@ -1,6 +1,7 @@
 import webbrowser
 import time
 
+# Script to open the updated Physical AI & Humanoid Robotics frontend with enhanced banner - Claude Code
 # URL of the Docusaurus frontend with the new banner
 url = "http://localhost:3001/ai-native-book/"
 
