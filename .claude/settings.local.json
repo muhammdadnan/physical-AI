@@ -45,7 +45,10 @@
       "Bash(npm install --save-dev swc-loader)",
       "Bash(npx docusaurus start --port 3004)",
       "Bash(npx docusaurus start --port 3007)",
-      "Bash(npx docusaurus start --port 3012)"
+      "Bash(npx docusaurus start --port 3012)",
+      "Bash(npx docusaurus start --port 3000)",
+      "Bash(ls docs/module-*/ -la)",
+      "Bash(rm docs/module-1/ros2-intro.md docs/module-2/gazebo-physics.md docs/module-3/isaac-sim-intro.md)"
     ],
     "deny": [],
     "ask": []
