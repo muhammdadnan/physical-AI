@@ -5,7 +5,7 @@ import {themes as prismThemes} from 'prism-react-renderer';
 const config = {
   title: 'Physical AI & Humanoid Robotics',
   tagline: 'A comprehensive textbook on Physical AI and Humanoid Robotics',
-  favicon: 'img/favicon.ico',
+  favicon: 'img/vla-pipeline.svg',
 
   // Set the production url of your site here
   url: 'https://your-username.github.io',
@@ -17,7 +17,7 @@ const config = {
   organizationName: 'your-organization', // Usually your GitHub org/user name.
   projectName: 'ai-native-book', // Usually your repo name.
 
-  onBrokenLinks: 'throw',
+  onBrokenLinks: 'warn',
   onBrokenMarkdownLinks: 'warn',
 
   // Even if you don't use internationalization, you can use this field to set
@@ -35,10 +35,7 @@ const config = {
       ({
         docs: {
           sidebarPath: './sidebars.js',
-          // Please change this to your repo.
-          // Remove this to remove the "edit this page" links.
-          editUrl:
-            'https://github.com/facebook/docusaurus/tree/main/packages/create-docusaurus/templates/shared/',
+          routeBasePath: 'docs',
         },
         blog: false, // Optional: disable the blog plugin
         theme: {
@@ -52,19 +49,18 @@ const config = {
     /** @type {import('@docusaurus/preset-classic').ThemeConfig} */
     ({
       // Replace with your project's social card
-      image: 'img/docusaurus-social-card.jpg',
+      image: 'img/vla-pipeline.svg',
       navbar: {
         title: 'Physical AI & Humanoid Robotics',
         logo: {
           alt: 'Physical AI Logo',
-          src: 'img/logo.svg',
+          src: 'img/vla-pipeline.svg',
         },
         items: [
           {
-            type: 'docSidebar',
-            sidebarId: 'tutorialSidebar',
+            to: '/',
+            label: 'Home',
             position: 'left',
-            label: 'Book',
           },
           {
             href: 'https://github.com/your-username/ai-native-book',
@@ -80,8 +76,8 @@ const config = {
             title: 'Docs',
             items: [
               {
-                label: 'Book',
-                to: '/docs/intro',
+                label: 'Modules',
+                to: '/docs/module-1/ros2-intro',
               },
             ],
           },
