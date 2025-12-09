@@ -1,7 +1,3 @@
----
-slug: /
----
-
 # Physical AI & Humanoid Robotics
 
 Welcome to the comprehensive textbook on Physical AI and Humanoid Robotics. This book is divided into four modules that will take you from the fundamentals of ROS 2 to building complete Vision-Language-Action (VLA) systems for humanoid robots.
