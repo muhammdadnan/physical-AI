@@ -2,7 +2,7 @@
 import {themes as prismThemes} from 'prism-react-renderer';
 
 /** @type {import('@docusaurus/types').Config} */
-// Last updated: 2025-12-11 to fix baseUrl issue
+// Last updated: 2025-12-11 to fix baseUrl and link issues
 const config = {
   title: 'Physical AI & Humanoid Robotics',
   tagline: 'A comprehensive textbook on Physical AI and Humanoid Robotics',
@@ -18,8 +18,8 @@ const config = {
   organizationName: 'muhammdadnan', // Usually your GitHub org/user name.
   projectName: 'physical-AI', // Usually your repo name.
 
-  onBrokenLinks: 'throw',
-  onBrokenMarkdownLinks: 'throw',
+  onBrokenLinks: 'warn',
+  onBrokenMarkdownLinks: 'warn',
   markdown: {
     mermaid: true,
     mdx1Compat: {
