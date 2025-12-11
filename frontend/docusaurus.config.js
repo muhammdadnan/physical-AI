@@ -2,7 +2,7 @@
 import {themes as prismThemes} from 'prism-react-renderer';
 
 /** @type {import('@docusaurus/types').Config} */
-// Last updated: 2025-12-11 to fix baseUrl and link issues
+// Last updated: 2025-12-11 to fix CSS loading issue
 const config = {
   title: 'Physical AI & Humanoid Robotics',
   tagline: 'A comprehensive textbook on Physical AI and Humanoid Robotics',
