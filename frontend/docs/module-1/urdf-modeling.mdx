@@ -1,0 +1,103 @@
+---
+title: URDF Robot Modeling
+---
+
+# URDF Robot Modeling
+
+## Introduction to URDF
+
+Unified Robot Description Format (URDF) is an XML-based format used in ROS 2 to describe robot models. It defines the physical and visual properties of a robot, including links, joints, and their relationships.
+
+## Creating a Minimal Humanoid URDF Model
+
+In this section, we'll create a minimal humanoid model that includes the essential components for humanoid robotics.
+
+### Basic Structure
+
+A URDF model consists of:
+- Links: Rigid bodies that represent physical parts
+- Joints: Connections between links that define degrees of freedom
+- Visual: How the robot appears in simulation
+- Collision: How the robot interacts with physics
+
+### Example Humanoid Structure
+
+```xml
+<?xml version="1.0"?>
+<robot name="simple_humanoid">
+  <!-- Base Link -->
+  <link name="base_link">
+    <visual>
+      <geometry>
+        <box size="0.2 0.1 0.1"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="0 0 1 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.2 0.1 0.1"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="1.0"/>
+      <inertia ixx="0.01" ixy="0.0" ixz="0.0" iyy="0.01" iyz="0.0" izz="0.01"/>
+    </inertial>
+  </link>
+
+  <!-- Head -->
+  <link name="head">
+    <visual>
+      <geometry>
+        <sphere radius="0.05"/>
+      </geometry>
+      <material name="white">
+        <color rgba="1 1 1 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <sphere radius="0.05"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.2"/>
+      <inertia ixx="0.0001" ixy="0.0" ixz="0.0" iyy="0.0001" iyz="0.0" izz="0.0001"/>
+    </inertial>
+  </link>
+
+  <joint name="head_joint" type="fixed">
+    <parent link="base_link"/>
+    <child link="head"/>
+    <origin xyz="0 0 0.1"/>
+  </joint>
+</robot>
+```
+
+## Visualizing URDF in RViz
+
+To visualize your URDF model in RViz:
+
+1. Create a launch file that includes the robot_state_publisher
+2. Load the URDF using the robot_description parameter
+3. Add a robot_state_publisher node to broadcast transforms
+
+## Best Practices for URDF Modeling
+
+- Use proper inertial properties for realistic physics simulation
+- Define collision geometries that match visual geometries
+- Use fixed joints for static connections
+- Use revolute joints for rotating joints with proper limits
+
+## Mini-Project: Create Your Own Humanoid Model
+
+In this mini-project, you'll create a complete humanoid model with at least 6 degrees of freedom. Your model should include:
+- Torso/Body
+- Head
+- Two arms
+- Two legs
+
+## Summary
+
+URDF modeling is fundamental to robotics simulation and provides the foundation for connecting your AI agents to physical robot representations. Understanding how to create proper URDF models will be essential for the simulation modules that follow.

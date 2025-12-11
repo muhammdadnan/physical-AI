@@ -1,0 +1,1592 @@
+---
+title: Mini-Project - Voice-Controlled Task Runner
+---
+
+# Mini-Project: Voice-Controlled Task Runner
+
+## Project Overview
+
+In this mini-project, we'll implement a complete Vision-Language-Action (VLA) pipeline that allows a humanoid robot to receive voice commands, process them through an LLM cognitive planner, and execute the resulting actions. This project integrates all the components we've learned: voice processing, LLM planning, vision perception, and action execution.
+
+## Project Architecture
+
+### System Components
+
+The voice-controlled task runner consists of several interconnected components:
+
+1. **Voice Input System**: Captures and processes voice commands
+2. **Natural Language Interface**: Converts speech to text and understands intent
+3. **Cognitive Planning Module**: Translates commands into action sequences
+4. **Perception System**: Provides environmental context for planning
+5. **Action Execution Pipeline**: Executes the planned actions
+6. **Feedback System**: Provides status updates and error handling
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from geometry_msgs.msg import PoseStamped
+from sensor_msgs.msg import Image, CameraInfo
+from cv_bridge import CvBridge
+import json
+import asyncio
+import threading
+import queue
+
+class VoiceControlledTaskRunner(Node):
+    def __init__(self):
+        super().__init__('voice_controlled_task_runner')
+
+        # Initialize components
+        self.bridge = CvBridge()
+
+        # Publishers
+        self.voice_cmd_pub = self.create_publisher(String, 'voice_commands', 10)
+        self.action_seq_pub = self.create_publisher(String, 'action_sequence', 10)
+        self.status_pub = self.create_publisher(String, 'system_status', 10)
+
+        # Subscribers
+        self.voice_sub = self.create_subscription(
+            String,
+            'voice_commands',
+            self.voice_command_callback,
+            10
+        )
+
+        self.camera_sub = self.create_subscription(
+            Image,
+            '/camera/rgb/image_raw',
+            self.camera_callback,
+            10
+        )
+
+        self.perception_sub = self.create_subscription(
+            String,
+            '/vision/objects',
+            self.perception_callback,
+            10
+        )
+
+        self.execution_status_sub = self.create_subscription(
+            String,
+            '/execution_status',
+            self.execution_status_callback,
+            10
+        )
+
+        # System state
+        self.current_task = None
+        self.is_executing = False
+        self.environment_context = {}
+        self.voice_command_queue = queue.Queue()
+
+        # Task execution thread
+        self.execution_thread = threading.Thread(target=self.execution_worker)
+        self.execution_thread.daemon = True
+        self.execution_thread.start()
+
+        self.get_logger().info('Voice Controlled Task Runner initialized')
+
+    def voice_command_callback(self, msg):
+        """
+        Handle incoming voice commands
+        """
+        command = msg.data
+        self.get_logger().info(f'Received voice command: {command}')
+
+        # Add to processing queue
+        self.voice_command_queue.put(command)
+
+        # Process the command
+        self.process_voice_command(command)
+
+    def process_voice_command(self, command):
+        """
+        Process voice command through the VLA pipeline
+        """
+        try:
+            # Step 1: Cognitive Planning
+            self.get_logger().info('Starting cognitive planning...')
+            plan = self.cognitive_planning(command)
+
+            if plan:
+                # Step 2: Context Enrichment
+                self.get_logger().info('Enriching plan with context...')
+                contextualized_plan = self.add_context_to_plan(plan)
+
+                # Step 3: Publish action sequence
+                self.get_logger().info('Publishing action sequence...')
+                self.publish_action_sequence(contextualized_plan)
+
+                # Step 4: Start execution
+                self.get_logger().info('Starting task execution...')
+                self.start_execution(contextualized_plan)
+
+        except Exception as e:
+            self.get_logger().error(f'Command processing error: {e}')
+            self.publish_status(f'Error processing command: {e}')
+
+    def cognitive_planning(self, command):
+        """
+        Use LLM to decompose command into action sequence
+        """
+        # This would call the LLM cognitive planner
+        # For this example, we'll simulate with a simple rule-based approach
+        # In practice, this would use OpenAI API or similar
+
+        # Simulate LLM call with predefined rules
+        command_lower = command.lower()
+
+        if "go to" in command_lower:
+            location = self.extract_location(command_lower)
+            plan = {
+                "command": command,
+                "decomposition": [
+                    {
+                        "step": 1,
+                        "description": f"Navigate to {location}",
+                        "action": "navigate",
+                        "parameters": {"location": location},
+                        "preconditions": ["robot_is_idle"],
+                        "expected_outcome": f"Robot reaches {location}"
+                    }
+                ]
+            }
+        elif "pick up" in command_lower or "get" in command_lower:
+            target_object = self.extract_object(command_lower)
+            plan = {
+                "command": command,
+                "decomposition": [
+                    {
+                        "step": 1,
+                        "description": f"Identify {target_object}",
+                        "action": "identify_object",
+                        "parameters": {"target": target_object},
+                        "preconditions": ["robot_has_perception"],
+                        "expected_outcome": f"{target_object} is located"
+                    },
+                    {
+                        "step": 2,
+                        "description": f"Navigate to {target_object}",
+                        "action": "navigate",
+                        "parameters": {"target_object": target_object},
+                        "preconditions": [f"{target_object}_located"],
+                        "expected_outcome": "Robot is near object"
+                    },
+                    {
+                        "step": 3,
+                        "description": f"Pick up {target_object}",
+                        "action": "pickup_object",
+                        "parameters": {"target": target_object},
+                        "preconditions": ["robot_is_near_object"],
+                        "expected_outcome": f"{target_object} is picked up"
+                    }
+                ]
+            }
+        elif "bring" in command_lower or "fetch" in command_lower:
+            parts = command_lower.split()
+            target_object = self.extract_object(command_lower)
+            destination = self.extract_destination(command_lower)
+
+            plan = {
+                "command": command,
+                "decomposition": [
+                    {
+                        "step": 1,
+                        "description": f"Identify {target_object}",
+                        "action": "identify_object",
+                        "parameters": {"target": target_object},
+                        "preconditions": ["robot_has_perception"],
+                        "expected_outcome": f"{target_object} is located"
+                    },
+                    {
+                        "step": 2,
+                        "description": f"Navigate to {target_object}",
+                        "action": "navigate",
+                        "parameters": {"target_object": target_object},
+                        "preconditions": [f"{target_object}_located"],
+                        "expected_outcome": "Robot is near object"
+                    },
+                    {
+                        "step": 3,
+                        "description": f"Pick up {target_object}",
+                        "action": "pickup_object",
+                        "parameters": {"target": target_object},
+                        "preconditions": ["robot_is_near_object"],
+                        "expected_outcome": f"{target_object} is picked up"
+                    },
+                    {
+                        "step": 4,
+                        "description": f"Navigate to {destination}",
+                        "action": "navigate",
+                        "parameters": {"location": destination},
+                        "preconditions": [f"{target_object}_picked_up"],
+                        "expected_outcome": "Robot reaches destination"
+                    },
+                    {
+                        "step": 5,
+                        "description": f"Place {target_object}",
+                        "action": "place_object",
+                        "parameters": {"location": destination},
+                        "preconditions": ["robot_at_destination"],
+                        "expected_outcome": f"{target_object} is placed"
+                    }
+                ]
+            }
+        else:
+            # Unknown command - ask for clarification
+            plan = {
+                "command": command,
+                "decomposition": [
+                    {
+                        "step": 1,
+                        "description": "Request clarification",
+                        "action": "request_clarification",
+                        "parameters": {"original_command": command},
+                        "preconditions": [],
+                        "expected_outcome": "User provides clarification"
+                    }
+                ]
+            }
+
+        return plan
+
+    def extract_location(self, command):
+        """
+        Extract location from command (simplified)
+        """
+        # This is a simplified extraction - in practice, use NLP
+        locations = ["kitchen", "living room", "bedroom", "office", "dining room", "bathroom"]
+        for loc in locations:
+            if loc in command:
+                return loc
+        return "unknown_location"
+
+    def extract_object(self, command):
+        """
+        Extract object from command (simplified)
+        """
+        objects = ["cup", "bottle", "book", "laptop", "phone", "remote", "glass", "plate", "fork", "spoon"]
+        for obj in objects:
+            if obj in command:
+                return obj
+        return "unknown_object"
+
+    def extract_destination(self, command):
+        """
+        Extract destination from command (simplified)
+        """
+        # Look for destination indicators
+        destination_indicators = ["to", "at", "in"]
+        for indicator in destination_indicators:
+            if indicator in command:
+                parts = command.split(indicator)
+                if len(parts) > 1:
+                    # Extract location after the indicator
+                    dest_part = parts[1].strip()
+                    return self.extract_location(dest_part)
+        return "current_location"
+
+    def add_context_to_plan(self, plan):
+        """
+        Add environmental context to the plan
+        """
+        contextualized_plan = plan.copy()
+
+        # Add current environment context
+        contextualized_plan["environment_context"] = self.environment_context
+
+        # Add robot capabilities
+        contextualized_plan["robot_capabilities"] = {
+            "navigation": True,
+            "manipulation": True,
+            "perception": True,
+            "speech_output": True
+        }
+
+        # Add safety constraints
+        contextualized_plan["safety_constraints"] = {
+            "max_navigation_distance": 10.0,
+            "max_manipulation_weight": 5.0,
+            "safe_approach_distance": 0.5
+        }
+
+        return contextualized_plan
+
+    def publish_action_sequence(self, plan):
+        """
+        Publish the action sequence for execution
+        """
+        action_msg = String()
+        action_msg.data = json.dumps(plan["decomposition"])
+        self.action_seq_pub.publish(action_msg)
+
+    def start_execution(self, plan):
+        """
+        Start executing the plan
+        """
+        self.current_task = plan
+        self.is_executing = True
+
+        # Publish execution start status
+        status_msg = String()
+        status_msg.data = f"Starting execution of: {plan['command']}"
+        self.status_pub.publish(status_msg)
+
+    def camera_callback(self, msg):
+        """
+        Process camera data for perception
+        """
+        try:
+            # Convert to OpenCV image
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+            # This would trigger object detection
+            # For now, we'll just store that we have camera data
+            self.environment_context['last_image_time'] = self.get_clock().now().nanoseconds / 1e9
+
+        except Exception as e:
+            self.get_logger().error(f'Camera callback error: {e}')
+
+    def perception_callback(self, msg):
+        """
+        Handle perception results
+        """
+        try:
+            objects_data = json.loads(msg.data)
+            self.environment_context['objects'] = objects_data
+
+            self.get_logger().info(f'Detected {len(objects_data)} objects')
+
+        except Exception as e:
+            self.get_logger().error(f'Perception callback error: {e}')
+
+    def execution_status_callback(self, msg):
+        """
+        Handle execution status updates
+        """
+        status = msg.data
+        self.get_logger().info(f'Execution status: {status}')
+
+        # Check if execution is complete
+        if "completed" in status.lower() or "failed" in status.lower():
+            self.is_executing = False
+            self.current_task = None
+
+    def publish_status(self, status):
+        """
+        Publish system status
+        """
+        status_msg = String()
+        status_msg.data = status
+        self.status_pub.publish(status_msg)
+
+    def execution_worker(self):
+        """
+        Background worker for task execution
+        """
+        while True:
+            if not self.voice_command_queue.empty():
+                try:
+                    command = self.voice_command_queue.get_nowait()
+                    self.process_voice_command(command)
+                except queue.Empty:
+                    pass
+            else:
+                # Small delay to prevent busy waiting
+                time.sleep(0.1)
+
+def main(args=None):
+    rclpy.init(args=args)
+
+    task_runner = VoiceControlledTaskRunner()
+
+    try:
+        rclpy.spin(task_runner)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        task_runner.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Voice Command Processing System
+
+### Advanced Voice Command Handler
+
+```python
+import speech_recognition as sr
+import threading
+import time
+
+class AdvancedVoiceCommandHandler:
+    def __init__(self, node):
+        self.node = node
+        self.recognizer = sr.Recognizer()
+        self.microphone = sr.Microphone()
+
+        # Adjust for ambient noise
+        with self.microphone as source:
+            self.recognizer.adjust_for_ambient_noise(source)
+
+        # Command keywords and patterns
+        self.command_patterns = {
+            "navigation": ["go to", "navigate to", "move to", "walk to", "go", "move"],
+            "manipulation": ["pick up", "get", "take", "grab", "lift", "hold", "place", "put", "set"],
+            "fetch": ["bring", "fetch", "get me", "bring me", "go get"],
+            "location": ["kitchen", "living room", "bedroom", "office", "dining room", "bathroom"],
+            "objects": ["cup", "bottle", "book", "laptop", "phone", "remote", "glass", "plate", "fork", "spoon"]
+        }
+
+        # Start listening thread
+        self.listening = True
+        self.listening_thread = threading.Thread(target=self.listen_continuously)
+        self.listening_thread.daemon = True
+        self.listening_thread.start()
+
+    def listen_continuously(self):
+        """
+        Continuously listen for voice commands
+        """
+        while self.listening:
+            try:
+                with self.microphone as source:
+                    # Listen for audio with timeout
+                    audio = self.recognizer.listen(source, timeout=1.0, phrase_time_limit=5.0)
+
+                # Recognize speech
+                command = self.recognizer.recognize_google(audio)
+                self.node.get_logger().info(f'Recognized: {command}')
+
+                # Publish command
+                cmd_msg = String()
+                cmd_msg.data = command
+                self.node.voice_cmd_pub.publish(cmd_msg)
+
+            except sr.WaitTimeoutError:
+                # No speech detected, continue listening
+                continue
+            except sr.UnknownValueError:
+                # Speech not understood
+                self.node.get_logger().info('Could not understand audio')
+                continue
+            except sr.RequestError as e:
+                # API error
+                self.node.get_logger().error(f'Speech recognition error: {e}')
+                time.sleep(1)  # Wait before retrying
+            except Exception as e:
+                self.node.get_logger().error(f'Listening error: {e}')
+                time.sleep(0.1)
+
+    def stop_listening(self):
+        """
+        Stop the listening process
+        """
+        self.listening = False
+
+    def validate_command(self, command):
+        """
+        Validate if command is a valid robot command
+        """
+        command_lower = command.lower()
+
+        # Check if command contains known action patterns
+        has_action = any(pattern in command_lower for pattern in
+                        self.command_patterns["navigation"] +
+                        self.command_patterns["manipulation"] +
+                        self.command_patterns["fetch"])
+
+        # Check if command contains known objects or locations
+        has_target = any(obj in command_lower for obj in self.command_patterns["objects"]) or \
+                    any(loc in command_lower for loc in self.command_patterns["location"])
+
+        return has_action or has_target
+```
+
+## Cognitive Planning Integration
+
+### Enhanced Planning with Context
+
+```python
+class EnhancedCognitivePlanner:
+    def __init__(self, node):
+        self.node = node
+        self.object_memory = {}  # Store known object locations
+        self.location_memory = {}  # Store known locations
+
+    def enhanced_planning(self, command, context):
+        """
+        Enhanced cognitive planning with context awareness
+        """
+        # Analyze command intent
+        intent = self.analyze_intent(command)
+
+        # Retrieve relevant context
+        relevant_objects = self.find_relevant_objects(intent, context)
+        relevant_locations = self.find_relevant_locations(intent, context)
+
+        # Generate plan based on intent and context
+        if intent == "navigation":
+            plan = self.plan_navigation(command, relevant_locations)
+        elif intent == "manipulation":
+            plan = self.plan_manipulation(command, relevant_objects)
+        elif intent == "fetch":
+            plan = self.plan_fetch(command, relevant_objects, relevant_locations)
+        else:
+            plan = self.plan_generic(command)
+
+        # Validate plan against safety constraints
+        validated_plan = self.validate_plan(plan, context)
+
+        return validated_plan
+
+    def analyze_intent(self, command):
+        """
+        Analyze the intent of the voice command
+        """
+        command_lower = command.lower()
+
+        if any(pattern in command_lower for pattern in ["go to", "navigate to", "move to", "go", "move"]):
+            return "navigation"
+        elif any(pattern in command_lower for pattern in ["pick up", "get", "take", "grab", "lift", "hold"]):
+            return "manipulation"
+        elif any(pattern in command_lower for pattern in ["bring", "fetch", "get me", "bring me", "go get"]):
+            return "fetch"
+        else:
+            return "generic"
+
+    def find_relevant_objects(self, intent, context):
+        """
+        Find relevant objects based on intent and context
+        """
+        if "objects" not in context:
+            return []
+
+        relevant_objects = []
+        for obj in context["objects"]:
+            # For manipulation/fetch intents, look for manipulable objects
+            if intent in ["manipulation", "fetch"]:
+                if obj.get("manipulable", False):
+                    relevant_objects.append(obj)
+            else:
+                relevant_objects.append(obj)
+
+        return relevant_objects
+
+    def find_relevant_locations(self, intent, context):
+        """
+        Find relevant locations based on intent and context
+        """
+        # This would use environment maps and known locations
+        # For now, return empty list
+        return []
+
+    def plan_navigation(self, command, locations):
+        """
+        Plan navigation task
+        """
+        target_location = self.extract_location(command)
+
+        plan = {
+            "command": command,
+            "decomposition": [
+                {
+                    "step": 1,
+                    "description": f"Navigate to {target_location}",
+                    "action": "navigate_to_pose",
+                    "parameters": {
+                        "target_location": target_location,
+                        "use_known_map": True
+                    },
+                    "preconditions": ["robot_is_idle", "navigation_system_ready"],
+                    "expected_outcome": f"Robot reaches {target_location}",
+                    "safety_considerations": ["avoid_obstacles", "safe_speed"]
+                }
+            ],
+            "overall_goal": f"Move robot to {target_location}"
+        }
+
+        return plan
+
+    def plan_manipulation(self, command, objects):
+        """
+        Plan manipulation task
+        """
+        target_object = self.extract_object(command)
+
+        plan = {
+            "command": command,
+            "decomposition": [
+                {
+                    "step": 1,
+                    "description": f"Locate {target_object}",
+                    "action": "detect_object",
+                    "parameters": {"target_object": target_object},
+                    "preconditions": ["perception_system_active"],
+                    "expected_outcome": f"{target_object} is detected",
+                    "safety_considerations": ["object_verification"]
+                },
+                {
+                    "step": 2,
+                    "description": f"Approach {target_object}",
+                    "action": "navigate_to_object",
+                    "parameters": {"target_object": target_object},
+                    "preconditions": [f"{target_object}_detected"],
+                    "expected_outcome": "Robot is positioned for manipulation",
+                    "safety_considerations": ["safe_approach_distance"]
+                },
+                {
+                    "step": 3,
+                    "description": f"Grasp {target_object}",
+                    "action": "grasp_object",
+                    "parameters": {"target_object": target_object},
+                    "preconditions": ["robot_positioned_correctly"],
+                    "expected_outcome": f"{target_object} is grasped",
+                    "safety_considerations": ["grasp_verification", "weight_check"]
+                }
+            ],
+            "overall_goal": f"Manipulate {target_object}"
+        }
+
+        return plan
+
+    def plan_fetch(self, command, objects, locations):
+        """
+        Plan fetch task (go get something and bring it back)
+        """
+        target_object = self.extract_object(command)
+        destination = self.extract_destination(command) or "current_location"
+
+        plan = {
+            "command": command,
+            "decomposition": [
+                {
+                    "step": 1,
+                    "description": f"Locate {target_object}",
+                    "action": "detect_object",
+                    "parameters": {"target_object": target_object},
+                    "preconditions": ["perception_system_active"],
+                    "expected_outcome": f"{target_object} is detected",
+                    "safety_considerations": ["object_verification"]
+                },
+                {
+                    "step": 2,
+                    "description": f"Navigate to {target_object}",
+                    "action": "navigate_to_object",
+                    "parameters": {"target_object": target_object},
+                    "preconditions": [f"{target_object}_detected"],
+                    "expected_outcome": "Robot is near object",
+                    "safety_considerations": ["avoid_obstacles"]
+                },
+                {
+                    "step": 3,
+                    "description": f"Pick up {target_object}",
+                    "action": "grasp_object",
+                    "parameters": {"target_object": target_object},
+                    "preconditions": ["robot_near_object"],
+                    "expected_outcome": f"{target_object} is picked up",
+                    "safety_considerations": ["grasp_verification"]
+                },
+                {
+                    "step": 4,
+                    "description": f"Navigate to {destination}",
+                    "action": "navigate_to_pose",
+                    "parameters": {"target_location": destination},
+                    "preconditions": [f"{target_object}_picked_up"],
+                    "expected_outcome": "Robot reaches destination",
+                    "safety_considerations": ["safe_transport", "avoid_obstacles"]
+                },
+                {
+                    "step": 5,
+                    "description": f"Place {target_object}",
+                    "action": "place_object",
+                    "parameters": {"location": destination},
+                    "preconditions": ["robot_at_destination"],
+                    "expected_outcome": f"{target_object} is placed at destination",
+                    "safety_considerations": ["safe_placement"]
+                }
+            ],
+            "overall_goal": f"Fetch {target_object} and bring to {destination}"
+        }
+
+        return plan
+
+    def validate_plan(self, plan, context):
+        """
+        Validate plan against safety and feasibility constraints
+        """
+        validated_plan = plan.copy()
+
+        # Check robot capabilities
+        for step in validated_plan["decomposition"]:
+            action = step["action"]
+            if not self.robot_has_capability(action, context):
+                step["feasible"] = False
+                step["error"] = f"Robot does not have capability to perform {action}"
+            else:
+                step["feasible"] = True
+
+        # Check environmental constraints
+        if not self.environment_supports_plan(validated_plan, context):
+            validated_plan["feasible"] = False
+            validated_plan["error"] = "Environmental constraints prevent plan execution"
+
+        return validated_plan
+
+    def robot_has_capability(self, action, context):
+        """
+        Check if robot has capability to perform action
+        """
+        capabilities = context.get("robot_capabilities", {})
+
+        capability_map = {
+            "navigate_to_pose": "navigation",
+            "navigate_to_object": "navigation",
+            "detect_object": "perception",
+            "grasp_object": "manipulation",
+            "place_object": "manipulation"
+        }
+
+        required_capability = capability_map.get(action)
+        if required_capability:
+            return capabilities.get(required_capability, False)
+        return True  # Assume general actions are possible
+
+    def environment_supports_plan(self, plan, context):
+        """
+        Check if environment supports the plan
+        """
+        # Check if target locations exist in environment map
+        for step in plan["decomposition"]:
+            if "target_location" in step.get("parameters", {}):
+                location = step["parameters"]["target_location"]
+                # This would check against environment map
+                # For now, assume all locations are valid
+                pass
+
+        return True
+```
+
+## Perception Integration
+
+### Context-Aware Perception
+
+```python
+class ContextAwarePerception:
+    def __init__(self, node):
+        self.node = node
+        self.object_detector = None  # Initialize with actual detector
+        self.spatial_reasoner = None  # Initialize with spatial reasoner
+        self.object_memory = {}  # Track object locations over time
+
+    def update_environment_context(self, image_msg, camera_info):
+        """
+        Update environment context with latest perception data
+        """
+        try:
+            # Process image to detect objects
+            cv_image = self.node.bridge.imgmsg_to_cv2(image_msg, "bgr8")
+            detections = self.detect_objects_in_image(cv_image)
+
+            # Update object memory with new detections
+            self.update_object_memory(detections)
+
+            # Analyze spatial relationships
+            spatial_context = self.analyze_spatial_context(detections)
+
+            # Create context dictionary
+            context = {
+                "objects": detections,
+                "spatial_relationships": spatial_context,
+                "object_memory": self.object_memory,
+                "timestamp": image_msg.header.stamp.sec + image_msg.header.stamp.nanosec / 1e9
+            }
+
+            return context
+
+        except Exception as e:
+            self.node.get_logger().error(f'Context update error: {e}')
+            return {}
+
+    def detect_objects_in_image(self, image):
+        """
+        Detect objects in the current image
+        """
+        # This would call the actual object detection system
+        # For simulation, return mock detections
+        return [
+            {
+                "class": "cup",
+                "confidence": 0.89,
+                "bbox": [100, 150, 200, 250],
+                "manipulable": True,
+                "graspable": True
+            },
+            {
+                "class": "table",
+                "confidence": 0.95,
+                "bbox": [50, 300, 400, 480],
+                "manipulable": False,
+                "graspable": False
+            }
+        ]
+
+    def update_object_memory(self, detections):
+        """
+        Update object memory with new detections
+        """
+        for detection in detections:
+            obj_class = detection["class"]
+            if obj_class not in self.object_memory:
+                self.object_memory[obj_class] = []
+
+            # Add detection with timestamp
+            self.object_memory[obj_class].append({
+                "bbox": detection["bbox"],
+                "confidence": detection["confidence"],
+                "timestamp": time.time(),
+                "location": self.estimate_world_location(detection["bbox"])
+            })
+
+            # Keep only recent detections (last 10 minutes)
+            self.object_memory[obj_class] = [
+                obj for obj in self.object_memory[obj_class]
+                if time.time() - obj["timestamp"] < 600  # 10 minutes
+            ]
+
+    def estimate_world_location(self, bbox):
+        """
+        Estimate world coordinates from image coordinates
+        """
+        # This would use camera calibration and depth information
+        # For now, return a simple relative location
+        center_x = (bbox[0] + bbox[2]) / 2
+        center_y = (bbox[1] + bbox[3]) / 2
+
+        # Convert to relative position in image
+        h_pos = "left" if center_x < 213 else "center" if center_x < 426 else "right"
+        v_pos = "top" if center_y < 160 else "center" if center_y < 320 else "bottom"
+
+        return f"{v_pos} {h_pos}"
+
+    def analyze_spatial_context(self, detections):
+        """
+        Analyze spatial relationships between detected objects
+        """
+        relationships = []
+
+        for i, obj1 in enumerate(detections):
+            for j, obj2 in enumerate(detections[i+1:], i+1):
+                relationship = self.calculate_spatial_relationship(obj1, obj2)
+                if relationship:
+                    relationships.append(relationship)
+
+        return relationships
+
+    def calculate_spatial_relationship(self, obj1, obj2):
+        """
+        Calculate spatial relationship between two objects
+        """
+        bbox1 = obj1["bbox"]
+        bbox2 = obj2["bbox"]
+
+        center1 = ((bbox1[0] + bbox1[2]) / 2, (bbox1[1] + bbox1[3]) / 2)
+        center2 = ((bbox2[0] + bbox2[2]) / 2, (bbox2[1] + bbox2[3]) / 2)
+
+        dx = center2[0] - center1[0]
+        dy = center2[1] - center1[1]
+
+        # Determine relative position
+        if abs(dx) > abs(dy):
+            direction = "left" if dx < 0 else "right"
+        else:
+            direction = "above" if dy < 0 else "below"
+
+        distance = ((dx**2) + (dy**2))**0.5
+
+        return {
+            "objects": [obj1["class"], obj2["class"]],
+            "relationship": direction,
+            "distance": distance
+        }
+
+    def find_object_for_action(self, target_class, context):
+        """
+        Find the most suitable object for a given action
+        """
+        if "objects" not in context:
+            return None
+
+        # Filter objects by class and suitability
+        suitable_objects = [
+            obj for obj in context["objects"]
+            if obj["class"] == target_class and obj.get("manipulable", False)
+        ]
+
+        if not suitable_objects:
+            # Check object memory for previously seen objects
+            if target_class in self.object_memory:
+                # Return the most recently seen object
+                recent_objects = sorted(
+                    self.object_memory[target_class],
+                    key=lambda x: x["timestamp"],
+                    reverse=True
+                )
+                if recent_objects:
+                    return recent_objects[0]
+
+            return None
+
+        # Return the object with highest confidence
+        return max(suitable_objects, key=lambda x: x["confidence"])
+```
+
+## Action Execution and Monitoring
+
+### Execution Manager with Feedback
+
+```python
+class ExecutionManager:
+    def __init__(self, node):
+        self.node = node
+        self.current_plan = None
+        self.current_step = 0
+        self.execution_active = False
+        self.action_clients = {}
+        self.feedback_handlers = {}
+
+    def execute_plan(self, plan):
+        """
+        Execute the action plan
+        """
+        self.current_plan = plan
+        self.current_step = 0
+        self.execution_active = True
+
+        self.node.get_logger().info(f'Executing plan with {len(plan["decomposition"])} steps')
+
+        # Start execution of the first step
+        self.execute_current_step()
+
+    def execute_current_step(self):
+        """
+        Execute the current step in the plan
+        """
+        if not self.current_plan or self.current_step >= len(self.current_plan["decomposition"]):
+            self.execution_complete(success=True)
+            return
+
+        current_step = self.current_plan["decomposition"][self.current_step]
+
+        if not current_step.get("feasible", True):
+            self.node.get_logger().error(f'Step not feasible: {current_step.get("error", "Unknown error")}')
+            self.execution_complete(success=False)
+            return
+
+        self.node.get_logger().info(f'Executing step {self.current_step + 1}: {current_step["description"]}')
+
+        # Execute based on action type
+        action_type = current_step["action"]
+        if action_type in self.action_handlers:
+            self.action_handlers[action_type](current_step)
+        else:
+            self.node.get_logger().error(f'Unknown action type: {action_type}')
+            self.step_failed()
+
+    def setup_action_handlers(self):
+        """
+        Setup handlers for different action types
+        """
+        self.action_handlers = {
+            "navigate_to_pose": self.execute_navigation,
+            "navigate_to_object": self.execute_navigation_to_object,
+            "detect_object": self.execute_detection,
+            "grasp_object": self.execute_grasp,
+            "place_object": self.execute_place,
+            "request_clarification": self.execute_clarification
+        }
+
+    def execute_navigation(self, step):
+        """
+        Execute navigation action
+        """
+        try:
+            target_location = step["parameters"]["target_location"]
+
+            # This would call the actual navigation action
+            # For now, simulate with a timer
+            timer = self.node.create_timer(
+                3.0,  # Simulate 3 seconds for navigation
+                lambda: self.navigation_complete(step)
+            )
+
+        except Exception as e:
+            self.node.get_logger().error(f'Navigation execution error: {e}')
+            self.step_failed()
+
+    def navigation_complete(self, step):
+        """
+        Handle navigation completion
+        """
+        self.node.get_logger().info('Navigation step completed')
+        self.step_complete()
+
+    def execute_detection(self, step):
+        """
+        Execute object detection action
+        """
+        try:
+            target_object = step["parameters"]["target_object"]
+
+            # This would trigger object detection
+            # For now, simulate with a timer
+            timer = self.node.create_timer(
+                1.0,  # Simulate 1 second for detection
+                lambda: self.detection_complete(step, target_object)
+            )
+
+        except Exception as e:
+            self.node.get_logger().error(f'Detection execution error: {e}')
+            self.step_failed()
+
+    def detection_complete(self, step, target_object):
+        """
+        Handle detection completion
+        """
+        # Check if object was found in the environment context
+        if hasattr(self.node, 'environment_context') and 'objects' in self.node.environment_context:
+            found = any(obj['class'] == target_object for obj in self.node.environment_context['objects'])
+            if found:
+                self.node.get_logger().info(f'{target_object} detected successfully')
+                self.step_complete()
+            else:
+                self.node.get_logger().error(f'{target_object} not found')
+                self.step_failed()
+        else:
+            # Simulate success for this example
+            self.node.get_logger().info(f'{target_object} detection completed')
+            self.step_complete()
+
+    def execute_grasp(self, step):
+        """
+        Execute grasping action
+        """
+        try:
+            target_object = step["parameters"]["target_object"]
+
+            # Simulate grasping
+            timer = self.node.create_timer(
+                2.0,  # Simulate 2 seconds for grasping
+                lambda: self.grasp_complete(step, target_object)
+            )
+
+        except Exception as e:
+            self.node.get_logger().error(f'Grasp execution error: {e}')
+            self.step_failed()
+
+    def grasp_complete(self, step, target_object):
+        """
+        Handle grasping completion
+        """
+        self.node.get_logger().info(f'{target_object} grasped successfully')
+        self.step_complete()
+
+    def execute_place(self, step):
+        """
+        Execute placement action
+        """
+        try:
+            location = step["parameters"]["location"]
+
+            # Simulate placement
+            timer = self.node.create_timer(
+                1.5,  # Simulate 1.5 seconds for placement
+                lambda: self.place_complete(step, location)
+            )
+
+        except Exception as e:
+            self.node.get_logger().error(f'Place execution error: {e}')
+            self.step_failed()
+
+    def place_complete(self, step, location):
+        """
+        Handle placement completion
+        """
+        self.node.get_logger().info(f'Object placed at {location}')
+        self.step_complete()
+
+    def step_complete(self):
+        """
+        Handle completion of current step
+        """
+        self.current_step += 1
+
+        if self.current_step < len(self.current_plan["decomposition"]):
+            # Execute next step
+            self.execute_current_step()
+        else:
+            # All steps completed
+            self.execution_complete(success=True)
+
+    def step_failed(self):
+        """
+        Handle failure of current step
+        """
+        self.node.get_logger().error(f'Step {self.current_step} failed')
+
+        # Check if we should continue or abort
+        if self.should_continue_on_failure():
+            self.current_step += 1
+            if self.current_step < len(self.current_plan["decomposition"]):
+                self.execute_current_step()
+            else:
+                self.execution_complete(success=False)
+        else:
+            self.execution_complete(success=False)
+
+    def should_continue_on_failure(self):
+        """
+        Determine if execution should continue after a step failure
+        """
+        # For now, don't continue on failure
+        # In practice, this could be more sophisticated
+        return False
+
+    def execution_complete(self, success=True):
+        """
+        Handle completion of entire plan execution
+        """
+        self.execution_active = False
+
+        status = "completed successfully" if success else "completed with failures"
+        self.node.get_logger().info(f'Plan execution {status}')
+
+        # Publish completion status
+        status_msg = String()
+        status_msg.data = f"Plan execution {status}"
+        self.node.status_pub.publish(status_msg)
+
+        # Clear current plan
+        self.current_plan = None
+```
+
+## Error Handling and Recovery
+
+### Robust Error Management
+
+```python
+class ErrorHandlingManager:
+    def __init__(self, node):
+        self.node = node
+        self.error_history = []
+        self.max_error_history = 10
+
+    def handle_execution_error(self, error_type, error_message, step_info=None):
+        """
+        Handle execution errors with appropriate recovery
+        """
+        error_record = {
+            "timestamp": time.time(),
+            "error_type": error_type,
+            "error_message": error_message,
+            "step_info": step_info,
+            "attempt_count": 1
+        }
+
+        # Add to error history
+        self.error_history.append(error_record)
+        if len(self.error_history) > self.max_error_history:
+            self.error_history.pop(0)
+
+        # Log the error
+        self.node.get_logger().error(f'{error_type}: {error_message}')
+
+        # Attempt recovery based on error type
+        recovery_successful = self.attempt_recovery(error_type, error_message, step_info)
+
+        if not recovery_successful:
+            # If recovery failed, escalate
+            self.escalate_error(error_type, error_message, step_info)
+
+    def attempt_recovery(self, error_type, error_message, step_info):
+        """
+        Attempt to recover from specific error types
+        """
+        if error_type == "NAVIGATION_FAILED":
+            return self.recover_navigation_failure(error_message, step_info)
+        elif error_type == "OBJECT_NOT_FOUND":
+            return self.recover_object_not_found(error_message, step_info)
+        elif error_type == "GRASP_FAILED":
+            return self.recover_grasp_failure(error_message, step_info)
+        elif error_type == "PERCEPTION_TIMEOUT":
+            return self.recover_perception_timeout(error_message, step_info)
+        else:
+            # Unknown error type - no specific recovery
+            return False
+
+    def recover_navigation_failure(self, error_message, step_info):
+        """
+        Attempt to recover from navigation failure
+        """
+        self.node.get_logger().info('Attempting navigation recovery...')
+
+        # Try alternative navigation approach
+        # This could involve:
+        # - Using different planner
+        # - Increasing tolerance
+        # - Requesting human assistance
+        # - Aborting to safe location
+
+        # For now, simulate recovery success
+        return True
+
+    def recover_object_not_found(self, error_message, step_info):
+        """
+        Attempt to recover from object not found
+        """
+        self.node.get_logger().info('Attempting object search recovery...')
+
+        # Try searching in nearby locations
+        # Use object memory to check last known locations
+        # Perform 360-degree turn to look for object
+
+        # For now, simulate recovery success
+        return True
+
+    def recover_grasp_failure(self, error_message, step_info):
+        """
+        Attempt to recover from grasp failure
+        """
+        self.node.get_logger().info('Attempting grasp recovery...')
+
+        # Try different grasp approach
+        # Adjust grasp parameters
+        # Check if object is too heavy or fragile
+
+        # For now, simulate recovery success
+        return True
+
+    def recover_perception_timeout(self, error_message, step_info):
+        """
+        Attempt to recover from perception timeout
+        """
+        self.node.get_logger().info('Attempting perception recovery...')
+
+        # Increase timeout
+        # Try different camera angle
+        # Improve lighting conditions
+
+        # For now, simulate recovery success
+        return True
+
+    def escalate_error(self, error_type, error_message, step_info):
+        """
+        Escalate error when recovery fails
+        """
+        self.node.get_logger().error(f'Error escalation: {error_type} - {error_message}')
+
+        # Publish error to higher-level system
+        error_msg = String()
+        error_msg.data = json.dumps({
+            "error_type": error_type,
+            "error_message": error_message,
+            "step_info": step_info,
+            "timestamp": time.time()
+        })
+
+        # Use a specific error topic
+        error_pub = self.node.create_publisher(String, 'system_errors', 10)
+        error_pub.publish(error_msg)
+
+        # Request human intervention if possible
+        self.request_human_assistance(error_type, error_message)
+
+    def request_human_assistance(self, error_type, error_message):
+        """
+        Request human assistance for error resolution
+        """
+        self.node.get_logger().info('Requesting human assistance...')
+
+        # This could involve:
+        # - Playing audio alert
+        # - Sending notification to operator
+        # - Moving to designated assistance location
+        # - Providing error details for human review
+
+        # For simulation, just log the request
+        assistance_msg = String()
+        assistance_msg.data = f"Human assistance needed: {error_type} - {error_message}"
+        self.node.status_pub.publish(assistance_msg)
+```
+
+## Testing and Validation
+
+### Test Scenarios
+
+```python
+class VLATestSuite:
+    def __init__(self, node):
+        self.node = node
+        self.test_results = []
+
+    def run_comprehensive_tests(self):
+        """
+        Run comprehensive tests for the VLA system
+        """
+        tests = [
+            self.test_voice_recognition,
+            self.test_command_understanding,
+            self.test_planning_accuracy,
+            self.test_perception_integration,
+            self.test_action_execution,
+            self.test_error_handling
+        ]
+
+        for test_func in tests:
+            self.node.get_logger().info(f'Running test: {test_func.__name__}')
+            try:
+                result = test_func()
+                self.test_results.append({
+                    'test': test_func.__name__,
+                    'result': 'PASS' if result else 'FAIL',
+                    'details': 'Test completed successfully' if result else 'Test failed'
+                })
+            except Exception as e:
+                self.test_results.append({
+                    'test': test_func.__name__,
+                    'result': 'ERROR',
+                    'details': str(e)
+                })
+
+        self.print_test_summary()
+
+    def test_voice_recognition(self):
+        """
+        Test voice recognition capabilities
+        """
+        # Simulate voice commands and verify they are properly captured
+        test_commands = [
+            "Go to kitchen",
+            "Pick up the red cup",
+            "Bring me the book from the table"
+        ]
+
+        for command in test_commands:
+            # Simulate voice input
+            cmd_msg = String()
+            cmd_msg.data = command
+            self.node.voice_command_callback(cmd_msg)
+
+        # Verify commands were processed
+        return True  # Simplified test
+
+    def test_command_understanding(self):
+        """
+        Test command understanding and intent analysis
+        """
+        test_cases = [
+            ("Go to kitchen", "navigation"),
+            ("Pick up the cup", "manipulation"),
+            ("Bring me the book", "fetch")
+        ]
+
+        for command, expected_intent in test_cases:
+            intent = self.node.planner.analyze_intent(command)
+            if intent != expected_intent:
+                self.node.get_logger().error(f'Intent mismatch: {command} -> {intent} (expected {expected_intent})')
+                return False
+
+        return True
+
+    def test_planning_accuracy(self):
+        """
+        Test planning accuracy with known scenarios
+        """
+        # Test simple navigation
+        nav_plan = self.node.planner.plan_navigation("Go to kitchen", [])
+        if len(nav_plan["decomposition"]) == 0:
+            return False
+
+        # Test manipulation
+        manip_plan = self.node.planner.plan_manipulation("Pick up cup", [])
+        if len(manip_plan["decomposition"]) < 3:  # Should have at least locate, approach, grasp
+            return False
+
+        # Test fetch
+        fetch_plan = self.node.planner.plan_fetch("Bring cup", [], [])
+        if len(fetch_plan["decomposition"]) < 5:  # Should have multiple steps
+            return False
+
+        return True
+
+    def test_perception_integration(self):
+        """
+        Test perception system integration
+        """
+        # This would involve testing with actual camera data
+        # For now, verify perception callbacks work
+        try:
+            # Simulate perception data
+            obj_data = json.dumps([{"class": "cup", "confidence": 0.9}])
+            obj_msg = String()
+            obj_msg.data = obj_data
+            self.node.perception_callback(obj_msg)
+
+            # Verify environment context was updated
+            if "objects" in self.node.environment_context:
+                return True
+            else:
+                return False
+        except Exception:
+            return False
+
+    def test_action_execution(self):
+        """
+        Test action execution pipeline
+        """
+        # Test with a simple plan
+        simple_plan = {
+            "command": "Test command",
+            "decomposition": [
+                {
+                    "step": 1,
+                    "description": "Test action",
+                    "action": "request_clarification",
+                    "parameters": {"original_command": "Test"},
+                    "preconditions": [],
+                    "expected_outcome": "Test completed"
+                }
+            ]
+        }
+
+        try:
+            self.node.executor.execute_plan(simple_plan)
+            return True
+        except Exception:
+            return False
+
+    def test_error_handling(self):
+        """
+        Test error handling capabilities
+        """
+        # Test error recovery
+        try:
+            self.node.error_handler.handle_execution_error(
+                "TEST_ERROR",
+                "This is a test error",
+                {"step": 1, "action": "test"}
+            )
+            return True
+        except Exception:
+            return False
+
+    def print_test_summary(self):
+        """
+        Print test results summary
+        """
+        passed = sum(1 for result in self.test_results if result['result'] == 'PASS')
+        total = len(self.test_results)
+
+        self.node.get_logger().info(f'=== Test Results: {passed}/{total} tests passed ===')
+        for result in self.test_results:
+            status = '✅' if result['result'] == 'PASS' else '❌'
+            self.node.get_logger().info(f'{status} {result["test"]}: {result["result"]}')
+            if result['result'] != 'PASS':
+                self.node.get_logger().info(f'   Details: {result["details"]}')
+```
+
+## System Integration and Launch
+
+### Complete System Launch File
+
+```python
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from ament_index_python.packages import get_package_share_directory
+import os
+
+def generate_launch_description():
+    # Declare launch arguments
+    use_sim_time = LaunchConfiguration('use_sim_time', default='false')
+
+    # Voice controlled task runner node
+    vla_node = Node(
+        package='vla_task_runner',
+        executable='voice_controlled_task_runner',
+        name='voice_controlled_task_runner',
+        parameters=[{
+            'use_sim_time': use_sim_time
+        }],
+        remappings=[
+            ('/camera/rgb/image_raw', '/camera/image_raw'),
+            ('/voice_commands', '/speech_to_text/output'),
+            ('/action_sequence', '/cognitive_planner/plan'),
+        ]
+    )
+
+    # Object detection node (if using Isaac ROS)
+    object_detection_node = Node(
+        package='isaac_ros_detectnet',
+        executable='isaac_ros_detectnet',
+        name='object_detection',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'model_name': 'ssd_mobilenet_v2_coco',
+            'input_topic': '/camera/image_raw',
+            'output_topic': '/detectnet/detections'
+        }],
+        remappings=[
+            ('/image_raw', '/camera/image_raw'),
+            ('/detectnet/detections', '/vision/detections')
+        ]
+    )
+
+    # Navigation node
+    nav_node = Node(
+        package='nav2_client',
+        executable='nav2_client',
+        name='navigation_client',
+        parameters=[{
+            'use_sim_time': use_sim_time
+        }]
+    )
+
+    # Manipulation node
+    manipulation_node = Node(
+        package='manipulation_client',
+        executable='manipulation_client',
+        name='manipulation_client',
+        parameters=[{
+            'use_sim_time': use_sim_time
+        }]
+    )
+
+    return LaunchDescription([
+        vla_node,
+        object_detection_node,
+        nav_node,
+        manipulation_node
+    ])
+```
+
+## Best Practices for VLA Systems
+
+### Implementation Guidelines
+
+1. **Modular Design**: Keep components loosely coupled for maintainability
+2. **Error Handling**: Implement comprehensive error handling and recovery
+3. **Real-time Performance**: Optimize for real-time response requirements
+4. **Safety First**: Include safety checks at every level of execution
+5. **Context Awareness**: Maintain environmental context for adaptive behavior
+6. **Testing**: Thoroughly test with various scenarios and edge cases
+7. **Logging**: Maintain detailed logs for debugging and analysis
+8. **User Feedback**: Provide clear feedback about system state and actions
+
+## Summary
+
+The voice-controlled task runner demonstrates the complete VLA pipeline, integrating voice input, cognitive planning, perception, and action execution. This project showcases how natural language commands can be translated into complex robotic behaviors through a well-architected system. The implementation includes robust error handling, context awareness, and real-time performance considerations essential for practical VLA systems.

@@ -1,0 +1,1008 @@
+---
+title: ROS 2 Action Execution Pipeline
+---
+
+# ROS 2 Action Execution Pipeline
+
+## Introduction to Action-Based Execution
+
+In ROS 2, actions provide a way to handle long-running tasks with feedback and status updates. For Vision-Language-Action (VLA) systems, actions are crucial for executing complex robotic behaviors that may take significant time to complete, such as navigation to a distant location, manipulation of objects, or perception tasks.
+
+## ROS 2 Actions vs. Services vs. Topics
+
+### Comparison of Communication Patterns
+
+| Pattern | Use Case | Feedback | Durability | Execution Time |
+|---------|----------|----------|------------|----------------|
+| Topics | Continuous data streams | No | No | Immediate |
+| Services | Request/Response | Yes (final) | No | Short |
+| Actions | Long-running tasks | Yes (continuous) | Yes | Long |
+
+### When to Use Actions
+
+- **Navigation**: Moving to distant locations
+- **Manipulation**: Picking up, placing, or manipulating objects
+- **Perception**: Object detection, mapping, or scene analysis
+- **Complex behaviors**: Multi-step tasks with intermediate feedback
+
+## Action Architecture
+
+### Action Message Structure
+
+ROS 2 actions consist of three message types:
+
+1. **Goal**: Defines the desired action and parameters
+2. **Feedback**: Provides intermediate status during execution
+3. **Result**: Contains the final outcome of the action
+
+```python
+# Example action definition (action/Fibonacci.action)
+# Goal definition
+int32 order
+---
+# Result definition
+int32[] sequence
+---
+# Feedback definition
+int32[] sequence
+```
+
+## Implementing Action Servers
+
+### Basic Action Server
+
+```python
+import rclpy
+from rclpy.action import ActionServer, GoalResponse, CancelResponse
+from rclpy.node import Node
+from rclpy.executors import MultiThreadedExecutor
+from rclpy.callback_groups import ReentrantCallbackGroup
+import time
+import threading
+from example_interfaces.action import Fibonacci  # Example action
+
+class RobotActionServer(Node):
+    def __init__(self):
+        super().__init__('robot_action_server')
+
+        # Create action server with callback group for concurrency
+        self._action_server = ActionServer(
+            self,
+            Fibonacci,  # Replace with your action type
+            'execute_robot_task',
+            self.execute_callback,
+            goal_callback=self.goal_callback,
+            cancel_callback=self.cancel_callback,
+            callback_group=ReentrantCallbackGroup()
+        )
+
+        # Robot state tracking
+        self.current_task = None
+        self.is_executing = False
+
+        self.get_logger().info('Robot Action Server initialized')
+
+    def goal_callback(self, goal_request):
+        """
+        Accept or reject incoming goal requests
+        """
+        self.get_logger().info(f'Received goal request: {goal_request}')
+
+        # Validate goal parameters
+        if goal_request.order > 0 and goal_request.order <= 100:
+            return GoalResponse.ACCEPT
+        else:
+            self.get_logger().warn(f'Invalid goal order: {goal_request.order}')
+            return GoalResponse.REJECT
+
+    def cancel_callback(self, goal_handle):
+        """
+        Accept or reject cancel requests
+        """
+        self.get_logger().info('Received cancel request')
+        return CancelResponse.ACCEPT
+
+    def execute_callback(self, goal_handle):
+        """
+        Execute the action goal
+        """
+        self.get_logger().info('Executing goal...')
+
+        # Track current task
+        self.current_task = goal_handle
+        self.is_executing = True
+
+        # Initialize result
+        feedback_msg = Fibonacci.Feedback()
+        result = Fibonacci.Result()
+
+        # Simulate long-running task
+        sequence = [0, 1]
+
+        try:
+            for i in range(1, goal_handle.request.order):
+                if not goal_handle.is_active:
+                    self.get_logger().info('Goal cancelled')
+                    result.sequence = sequence
+                    return result
+
+                if goal_handle.is_cancel_requested:
+                    goal_handle.canceled()
+                    self.get_logger().info('Goal canceled')
+                    result.sequence = sequence
+                    return result
+
+                # Simulate work
+                time.sleep(0.5)
+
+                # Update sequence
+                sequence.append(sequence[i] + sequence[i-1])
+
+                # Publish feedback
+                feedback_msg.sequence = sequence
+                goal_handle.publish_feedback(feedback_msg)
+
+                self.get_logger().info(f'Feedback: {sequence}')
+
+            # Complete successfully
+            goal_handle.succeed()
+            result.sequence = sequence
+
+        except Exception as e:
+            self.get_logger().error(f'Execution failed: {e}')
+            goal_handle.abort()
+            result.sequence = sequence
+
+        finally:
+            self.is_executing = False
+            self.current_task = None
+
+        self.get_logger().info(f'Result: {result.sequence}')
+        return result
+
+def main(args=None):
+    rclpy.init(args=args)
+
+    action_server = RobotActionServer()
+
+    # Use multi-threaded executor for concurrent action handling
+    executor = MultiThreadedExecutor(num_threads=4)
+    executor.add_node(action_server)
+
+    try:
+        executor.spin()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        action_server.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## VLA-Specific Action Servers
+
+### Navigation Action Server
+
+```python
+import rclpy
+from rclpy.action import ActionServer
+from rclpy.node import Node
+from geometry_msgs.msg import PoseStamped
+from nav2_msgs.action import NavigateToPose
+from rclpy.qos import QoSProfile
+from tf2_ros import TransformException
+from tf2_ros.buffer import Buffer
+from tf2_ros.transform_listener import TransformListener
+
+class NavigationActionServer(Node):
+    def __init__(self):
+        super().__init__('navigation_action_server')
+
+        # TF buffer for coordinate transforms
+        self.tf_buffer = Buffer()
+        self.tf_listener = TransformListener(self.tf_buffer, self)
+
+        # Action server for navigation
+        self._action_server = ActionServer(
+            self,
+            NavigateToPose,
+            'navigate_to_pose',
+            self.execute_navigate_callback
+        )
+
+        # Navigation interface
+        self.nav_publisher = self.create_publisher(
+            PoseStamped,
+            'goal_pose',
+            10
+        )
+
+        # Current navigation state
+        self.current_goal = None
+        self.navigation_active = False
+
+        self.get_logger().info('Navigation Action Server initialized')
+
+    def execute_navigate_callback(self, goal_handle):
+        """
+        Execute navigation goal
+        """
+        self.get_logger().info('Executing navigation goal...')
+
+        # Validate goal
+        target_pose = goal_handle.request.pose
+        if not self.is_valid_navigation_goal(target_pose):
+            goal_handle.abort()
+            result = NavigateToPose.Result()
+            result.result = -1  # Failed
+            return result
+
+        # Set navigation goal
+        goal_msg = PoseStamped()
+        goal_msg.header.frame_id = target_pose.header.frame_id
+        goal_msg.pose = target_pose.pose
+        goal_msg.header.stamp = self.get_clock().now().to_msg()
+
+        self.nav_publisher.publish(goal_msg)
+
+        # Wait for navigation to complete with feedback
+        result = NavigateToPose.Result()
+        feedback_msg = NavigateToPose.Feedback()
+
+        # This is a simplified example - in practice, you'd monitor navigation status
+        # and provide real feedback
+        import time
+        for i in range(50):  # Simulate navigation with 50 feedback updates
+            if not goal_handle.is_active:
+                break
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+                result.result = -1
+                return result
+
+            # Simulate navigation progress
+            feedback_msg.current_pose.pose.position.x = i * 0.1
+            feedback_msg.current_pose.pose.position.y = i * 0.05
+            goal_handle.publish_feedback(feedback_msg)
+
+            time.sleep(0.2)
+
+        goal_handle.succeed()
+        result.result = 1  # Succeeded
+        return result
+
+    def is_valid_navigation_goal(self, pose):
+        """
+        Validate navigation goal is reasonable
+        """
+        # Check if goal is in a reasonable range
+        if abs(pose.pose.position.x) > 100 or abs(pose.pose.position.y) > 100:
+            return False
+        return True
+```
+
+### Manipulation Action Server
+
+```python
+import rclpy
+from rclpy.action import ActionServer
+from rclpy.node import Node
+from control_msgs.action import FollowJointTrajectory
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+from sensor_msgs.msg import JointState
+from std_msgs.msg import String
+
+class ManipulationActionServer(Node):
+    def __init__(self):
+        super().__init__('manipulation_action_server')
+
+        # Action server for manipulation
+        self._action_server = ActionServer(
+            self,
+            FollowJointTrajectory,
+            'manipulation_trajectory',
+            self.execute_manipulation_callback
+        )
+
+        # Joint state subscriber
+        self.joint_state_sub = self.create_subscription(
+            JointState,
+            'joint_states',
+            self.joint_state_callback,
+            10
+        )
+
+        # Trajectory publisher
+        self.trajectory_pub = self.create_publisher(
+            JointTrajectory,
+            'joint_trajectory',
+            10
+        )
+
+        # Current joint states
+        self.current_joint_states = JointState()
+
+        self.get_logger().info('Manipulation Action Server initialized')
+
+    def joint_state_callback(self, msg):
+        """
+        Update current joint states
+        """
+        self.current_joint_states = msg
+
+    def execute_manipulation_callback(self, goal_handle):
+        """
+        Execute manipulation trajectory goal
+        """
+        self.get_logger().info('Executing manipulation trajectory...')
+
+        trajectory = goal_handle.request.trajectory
+
+        # Validate trajectory
+        if not self.validate_trajectory(trajectory):
+            goal_handle.abort()
+            result = FollowJointTrajectory.Result()
+            result.error_code = FollowJointTrajectory.Result.INVALID_GOAL
+            return result
+
+        # Execute trajectory with feedback
+        result = FollowJointTrajectory.Result()
+        feedback_msg = FollowJointTrajectory.Feedback()
+
+        for i, point in enumerate(trajectory.points):
+            if not goal_handle.is_active:
+                break
+            if goal_handle.is_cancel_requested:
+                goal_handle.canceled()
+                result.error_code = FollowJointTrajectory.Result.PATH_TOLERANCE_VIOLATED
+                return result
+
+            # Publish trajectory point
+            single_trajectory = JointTrajectory()
+            single_trajectory.joint_names = trajectory.joint_names
+            single_trajectory.points = [point]
+            self.trajectory_pub.publish(single_trajectory)
+
+            # Provide feedback
+            feedback_msg.joint_names = trajectory.joint_names
+            feedback_msg.desired = point
+            feedback_msg.actual.positions = self.current_joint_states.position
+            feedback_msg.error.positions = [
+                desired - actual for desired, actual
+                in zip(point.positions, self.current_joint_states.position)
+            ]
+
+            goal_handle.publish_feedback(feedback_msg)
+
+            # Wait for execution (in real system, monitor actual execution)
+            time.sleep(point.time_from_start.sec + point.time_from_start.nanosec / 1e9)
+
+        goal_handle.succeed()
+        result.error_code = FollowJointTrajectory.Result.SUCCESSFUL
+        return result
+
+    def validate_trajectory(self, trajectory):
+        """
+        Validate manipulation trajectory
+        """
+        # Check joint names match robot configuration
+        expected_joints = ['joint1', 'joint2', 'joint3']  # Example joint names
+        if set(trajectory.joint_names) != set(expected_joints):
+            return False
+
+        # Check trajectory is not empty
+        if len(trajectory.points) == 0:
+            return False
+
+        return True
+```
+
+## Action Client Implementation
+
+### Basic Action Client
+
+```python
+import rclpy
+from rclpy.action import ActionClient
+from rclpy.node import Node
+from example_interfaces.action import Fibonacci
+
+class ActionClientNode(Node):
+    def __init__(self):
+        super().__init__('action_client_node')
+
+        # Create action client
+        self._action_client = ActionClient(
+            self,
+            Fibonacci,
+            'execute_robot_task'
+        )
+
+    def send_goal(self, order):
+        """
+        Send action goal to server
+        """
+        # Wait for action server
+        self._action_client.wait_for_server()
+
+        # Create goal
+        goal_msg = Fibonacci.Goal()
+        goal_msg.order = order
+
+        # Send goal with callbacks
+        self._send_goal_future = self._action_client.send_goal_async(
+            goal_msg,
+            feedback_callback=self.feedback_callback
+        )
+
+        self._send_goal_future.add_done_callback(self.goal_response_callback)
+
+    def goal_response_callback(self, future):
+        """
+        Handle goal response
+        """
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().info('Goal rejected')
+            return
+
+        self.get_logger().info('Goal accepted')
+
+        # Get result
+        self._get_result_future = goal_handle.get_result_async()
+        self._get_result_future.add_done_callback(self.get_result_callback)
+
+    def feedback_callback(self, feedback_msg):
+        """
+        Handle feedback during execution
+        """
+        self.get_logger().info(f'Received feedback: {feedback_msg.feedback.sequence}')
+
+    def get_result_callback(self, future):
+        """
+        Handle final result
+        """
+        result = future.result().result
+        self.get_logger().info(f'Result: {result.sequence}')
+
+def main(args=None):
+    rclpy.init(args=args)
+
+    action_client = ActionClientNode()
+
+    # Send a goal
+    action_client.send_goal(10)
+
+    try:
+        rclpy.spin(action_client)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        action_client.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## VLA Action Execution Pipeline
+
+### Task Execution Manager
+
+```python
+import rclpy
+from rclpy.action import ActionClient
+from rclpy.node import Node
+from geometry_msgs.msg import PoseStamped
+from nav2_msgs.action import NavigateToPose
+from control_msgs.action import FollowJointTrajectory
+from sensor_msgs.msg import Image
+from std_msgs.msg import String
+import json
+import asyncio
+from typing import List, Dict, Any
+
+class VLAExecutionPipeline(Node):
+    def __init__(self):
+        super().__init__('vla_execution_pipeline')
+
+        # Action clients for different capabilities
+        self.nav_client = ActionClient(self, NavigateToPose, 'navigate_to_pose')
+        self.manip_client = ActionClient(self, FollowJointTrajectory, 'manipulation_trajectory')
+
+        # Publishers for perception and other tasks
+        self.perception_pub = self.create_publisher(String, 'perception_requests', 10)
+        self.status_pub = self.create_publisher(String, 'execution_status', 10)
+
+        # Subscription to action sequence from cognitive planner
+        self.plan_sub = self.create_subscription(
+            String,
+            'action_sequence',
+            self.plan_callback,
+            10
+        )
+
+        # Execution state
+        self.current_plan = []
+        self.current_step = 0
+        self.execution_active = False
+        self.cancellation_requested = False
+
+        self.get_logger().info('VLA Execution Pipeline initialized')
+
+    def plan_callback(self, msg):
+        """
+        Receive action sequence from cognitive planner
+        """
+        try:
+            plan_data = json.loads(msg.data)
+            self.current_plan = plan_data
+            self.current_step = 0
+            self.get_logger().info(f'Received plan with {len(plan_data)} steps')
+
+            # Start execution if not already running
+            if not self.execution_active:
+                self.execute_plan()
+        except json.JSONDecodeError as e:
+            self.get_logger().error(f'Invalid plan JSON: {e}')
+
+    def execute_plan(self):
+        """
+        Execute the action sequence
+        """
+        if not self.current_plan or self.current_step >= len(self.current_plan):
+            self.get_logger().info('Plan execution complete')
+            self.execution_active = False
+            return
+
+        self.execution_active = True
+        current_action = self.current_plan[self.current_step]
+
+        self.get_logger().info(f'Executing step {self.current_step + 1}: {current_action["action_type"]}')
+
+        # Execute based on action type
+        if current_action["action_type"] == "navigation":
+            self.execute_navigation_action(current_action)
+        elif current_action["action_type"] == "manipulation":
+            self.execute_manipulation_action(current_action)
+        elif current_action["action_type"] == "perception":
+            self.execute_perception_action(current_action)
+        else:
+            self.execute_generic_action(current_action)
+
+    def execute_navigation_action(self, action):
+        """
+        Execute navigation action
+        """
+        try:
+            # Wait for navigation server
+            self.nav_client.wait_for_server(timeout_sec=5.0)
+
+            # Create navigation goal
+            goal_msg = NavigateToPose.Goal()
+            goal_msg.pose.header.frame_id = "map"
+            goal_msg.pose.pose = action["parameters"]["target_pose"].pose
+
+            # Send goal with feedback
+            future = self.nav_client.send_goal_async(
+                goal_msg,
+                feedback_callback=self.nav_feedback_callback
+            )
+            future.add_done_callback(lambda f: self.nav_goal_response_callback(f, action))
+
+        except Exception as e:
+            self.get_logger().error(f'Navigation action error: {e}')
+            self.on_action_complete(success=False, action=action)
+
+    def nav_feedback_callback(self, feedback_msg):
+        """
+        Handle navigation feedback
+        """
+        self.get_logger().info(f'Navigation progress: {feedback_msg.current_pose}')
+
+    def nav_goal_response_callback(self, future, action):
+        """
+        Handle navigation goal response
+        """
+        goal_handle = future.result()
+        if not goal_handle.accepted:
+            self.get_logger().error('Navigation goal rejected')
+            self.on_action_complete(success=False, action=action)
+            return
+
+        # Get result
+        result_future = goal_handle.get_result_async()
+        result_future.add_done_callback(lambda f: self.nav_result_callback(f, action))
+
+    def nav_result_callback(self, future, action):
+        """
+        Handle navigation result
+        """
+        result = future.result().result
+        success = result.result == 1  # Assuming 1 means success
+
+        self.get_logger().info(f'Navigation result: {success}')
+        self.on_action_complete(success=success, action=action)
+
+    def execute_manipulation_action(self, action):
+        """
+        Execute manipulation action
+        """
+        try:
+            # Wait for manipulation server
+            self.manip_client.wait_for_server(timeout_sec=5.0)
+
+            # Create manipulation goal
+            goal_msg = FollowJointTrajectory.Goal()
+            # Configure trajectory based on action parameters
+            trajectory = self.create_manipulation_trajectory(action["parameters"])
+            goal_msg.trajectory = trajectory
+
+            # Send goal
+            future = self.manip_client.send_goal_async(goal_msg)
+            future.add_done_callback(lambda f: self.manip_result_callback(f, action))
+
+        except Exception as e:
+            self.get_logger().error(f'Manipulation action error: {e}')
+            self.on_action_complete(success=False, action=action)
+
+    def create_manipulation_trajectory(self, parameters):
+        """
+        Create manipulation trajectory from parameters
+        """
+        from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+
+        trajectory = JointTrajectory()
+        trajectory.joint_names = parameters.get("joint_names", ["joint1", "joint2"])
+
+        point = JointTrajectoryPoint()
+        point.positions = parameters.get("positions", [0.0, 0.0])
+        point.time_from_start.sec = 2
+        trajectory.points = [point]
+
+        return trajectory
+
+    def manip_result_callback(self, future, action):
+        """
+        Handle manipulation result
+        """
+        result = future.result().result
+        success = result.error_code == result.SUCCESSFUL
+
+        self.get_logger().info(f'Manipulation result: {success}')
+        self.on_action_complete(success=success, action=action)
+
+    def execute_perception_action(self, action):
+        """
+        Execute perception action
+        """
+        # Publish perception request
+        request_msg = String()
+        request_msg.data = json.dumps(action["parameters"])
+        self.perception_pub.publish(request_msg)
+
+        # For perception, we might wait for a response or set a timer
+        # This is simplified - in practice, you'd wait for perception results
+        timer = self.create_timer(
+            action.get("timeout", 5.0),
+            lambda: self.on_action_complete(success=True, action=action)
+        )
+
+    def execute_generic_action(self, action):
+        """
+        Execute generic action
+        """
+        self.get_logger().info(f'Executing generic action: {action["action_name"]}')
+        # Implement other action types as needed
+        self.on_action_complete(success=True, action=action)
+
+    def on_action_complete(self, success: bool, action: Dict):
+        """
+        Handle action completion
+        """
+        if success:
+            self.get_logger().info(f'Action completed successfully: {action["action_name"]}')
+            # Move to next step
+            self.current_step += 1
+            # Continue execution
+            if self.current_step < len(self.current_plan) and not self.cancellation_requested:
+                self.execute_plan()
+            else:
+                self.execution_active = False
+                self.publish_status("Plan execution completed")
+        else:
+            self.get_logger().error(f'Action failed: {action["action_name"]}')
+            self.execution_active = False
+            self.publish_status("Plan execution failed")
+
+    def publish_status(self, status: str):
+        """
+        Publish execution status
+        """
+        status_msg = String()
+        status_msg.data = status
+        self.status_pub.publish(status_msg)
+
+    def cancel_current_execution(self):
+        """
+        Cancel current execution
+        """
+        self.cancellation_requested = True
+        self.execution_active = False
+        self.publish_status("Execution cancelled")
+```
+
+## Error Handling and Recovery
+
+### Robust Action Execution
+
+```python
+class RobustActionExecutor:
+    def __init__(self, node):
+        self.node = node
+        self.max_retries = 3
+        self.retry_delay = 1.0  # seconds
+
+    def execute_with_retry(self, action_func, *args, **kwargs):
+        """
+        Execute action with retry logic
+        """
+        last_exception = None
+
+        for attempt in range(self.max_retries):
+            try:
+                result = action_func(*args, **kwargs)
+                return result
+            except Exception as e:
+                last_exception = e
+                self.node.get_logger().warn(
+                    f'Action failed on attempt {attempt + 1}, retrying... Error: {e}'
+                )
+
+                if attempt < self.max_retries - 1:
+                    time.sleep(self.retry_delay)
+
+        # All retries failed
+        self.node.get_logger().error(f'Action failed after {self.max_retries} attempts: {last_exception}')
+        raise last_exception
+
+    def handle_action_timeout(self, action_name: str, timeout: float):
+        """
+        Handle action timeouts with appropriate recovery
+        """
+        self.node.get_logger().warn(f'Action {action_name} timed out after {timeout}s')
+
+        # Implement timeout-specific recovery
+        # For navigation, might try alternative path
+        # For manipulation, might retry with different parameters
+        pass
+
+    def validate_action_feasibility(self, action: Dict) -> bool:
+        """
+        Validate if action is feasible given current state
+        """
+        # Check robot capabilities
+        if not self.check_robot_capability(action):
+            return False
+
+        # Check environmental constraints
+        if not self.check_environmental_constraints(action):
+            return False
+
+        # Check safety constraints
+        if not self.check_safety_constraints(action):
+            return False
+
+        return True
+
+    def check_robot_capability(self, action: Dict) -> bool:
+        """
+        Check if robot has capability to perform action
+        """
+        # This would check actual robot capabilities
+        return True
+
+    def check_environmental_constraints(self, action: Dict) -> bool:
+        """
+        Check environmental constraints for action
+        """
+        # Check if target location is accessible
+        # Check if object is reachable
+        return True
+
+    def check_safety_constraints(self, action: Dict) -> bool:
+        """
+        Check safety constraints for action
+        """
+        # Check if action is safe to perform
+        return True
+```
+
+## Feedback and Monitoring
+
+### Execution Monitoring
+
+```python
+from rclpy.qos import QoSProfile, ReliabilityPolicy, DurabilityPolicy
+
+class ExecutionMonitor(Node):
+    def __init__(self):
+        super().__init__('execution_monitor')
+
+        # Publishers for monitoring
+        self.progress_pub = self.create_publisher(
+            String,
+            'execution_progress',
+            QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+        )
+
+        self.metrics_pub = self.create_publisher(
+            String,
+            'execution_metrics',
+            QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE)
+        )
+
+        # Track execution metrics
+        self.metrics = {
+            'total_actions': 0,
+            'successful_actions': 0,
+            'failed_actions': 0,
+            'average_execution_time': 0,
+            'total_execution_time': 0
+        }
+
+        # Timer for periodic metrics reporting
+        self.metrics_timer = self.create_timer(5.0, self.report_metrics)
+
+    def start_action_monitoring(self, action_id: str, action_type: str):
+        """
+        Start monitoring an action
+        """
+        self.get_logger().info(f'Starting monitoring for {action_type} (ID: {action_id})')
+
+    def update_action_progress(self, action_id: str, progress: float, details: str = ""):
+        """
+        Update action progress
+        """
+        progress_data = {
+            'action_id': action_id,
+            'progress': progress,
+            'details': details,
+            'timestamp': self.get_clock().now().nanoseconds / 1e9
+        }
+
+        progress_msg = String()
+        progress_msg.data = json.dumps(progress_data)
+        self.progress_pub.publish(progress_msg)
+
+    def record_action_completion(self, action_id: str, success: bool, execution_time: float):
+        """
+        Record action completion metrics
+        """
+        self.metrics['total_actions'] += 1
+
+        if success:
+            self.metrics['successful_actions'] += 1
+        else:
+            self.metrics['failed_actions'] += 1
+
+        # Update average execution time
+        total_time = self.metrics['total_execution_time']
+        count = self.metrics['total_actions']
+        self.metrics['average_execution_time'] = (total_time + execution_time) / count
+        self.metrics['total_execution_time'] += execution_time
+
+    def report_metrics(self):
+        """
+        Report execution metrics
+        """
+        if self.metrics['total_actions'] > 0:
+            success_rate = self.metrics['successful_actions'] / self.metrics['total_actions'] * 100
+
+            metrics_data = {
+                **self.metrics,
+                'success_rate': success_rate
+            }
+
+            metrics_msg = String()
+            metrics_msg.data = json.dumps(metrics_data)
+            self.metrics_pub.publish(metrics_msg)
+
+            self.get_logger().info(f'Execution metrics - Success rate: {success_rate:.1f}%')
+```
+
+## Performance Optimization
+
+### Concurrent Action Execution
+
+```python
+import concurrent.futures
+from threading import Lock
+
+class ConcurrentActionExecutor:
+    def __init__(self, node, max_workers=3):
+        self.node = node
+        self.executor = concurrent.futures.ThreadPoolExecutor(max_workers=max_workers)
+        self.action_lock = Lock()
+        self.active_actions = {}
+
+    def execute_concurrent_actions(self, actions: List[Dict]):
+        """
+        Execute multiple actions concurrently where possible
+        """
+        futures = []
+
+        for action in actions:
+            if self.can_execute_concurrently(action):
+                future = self.executor.submit(self.execute_single_action, action)
+                futures.append(future)
+            else:
+                # Execute sequentially
+                self.execute_single_action(action)
+
+        # Wait for all concurrent actions to complete
+        results = []
+        for future in concurrent.futures.as_completed(futures):
+            try:
+                result = future.result()
+                results.append(result)
+            except Exception as e:
+                self.node.get_logger().error(f'Concurrent action failed: {e}')
+                results.append(None)
+
+        return results
+
+    def can_execute_concurrently(self, action: Dict) -> bool:
+        """
+        Determine if action can be executed concurrently
+        """
+        # Navigation and perception can often run concurrently
+        # Manipulation might require exclusive access
+        non_concurrent_actions = ['manipulation', 'precise_control']
+
+        return action.get('action_type') not in non_concurrent_actions
+
+    def execute_single_action(self, action: Dict):
+        """
+        Execute a single action (runs in thread)
+        """
+        with self.action_lock:
+            action_id = f"{action['action_type']}_{id(action)}"
+            self.active_actions[action_id] = action
+
+        try:
+            # Execute the action
+            result = self.perform_action(action)
+            return result
+        finally:
+            with self.action_lock:
+                if action_id in self.active_actions:
+                    del self.active_actions[action_id]
+
+    def perform_action(self, action: Dict):
+        """
+        Perform the actual action execution
+        """
+        # This would call the appropriate action execution method
+        # based on action type
+        pass
+```
+
+## Best Practices for Action Execution
+
+### Guidelines for Effective Implementation
+
+1. **Proper Error Handling**: Always implement comprehensive error handling and recovery
+2. **Feedback Provision**: Provide meaningful feedback during long-running actions
+3. **State Management**: Track execution state for monitoring and recovery
+4. **Timeout Management**: Implement appropriate timeouts with recovery
+5. **Resource Management**: Properly manage robot resources during execution
+6. **Safety Considerations**: Include safety checks and emergency stops
+7. **Logging**: Maintain detailed logs for debugging and analysis
+8. **Testing**: Thoroughly test action execution under various conditions
+
+## Summary
+
+The ROS 2 action execution pipeline is the backbone of VLA systems, enabling the translation of high-level plans into executable robotic behaviors. Proper implementation of action servers and clients, with robust error handling and monitoring, ensures reliable execution of complex robotic tasks. The pipeline must handle long-running operations with appropriate feedback, timeout management, and recovery mechanisms to create dependable robotic systems.

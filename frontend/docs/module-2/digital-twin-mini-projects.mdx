@@ -1,0 +1,1036 @@
+---
+title: Digital Twin Mini-Projects
+---
+
+# Digital Twin Mini-Projects
+
+## Project Overview
+
+In this section, we'll implement two hands-on mini-projects that demonstrate practical application of digital twin concepts. These projects will solidify your understanding of Gazebo simulation, Unity environment creation, and sensor simulation for AI training.
+
+## Mini-Project 1: Gazebo Collision Test Environment
+
+### Objective
+Create a Gazebo simulation environment that tests robot collision detection, response, and recovery behaviors. This project will help you understand physics simulation and robot safety systems.
+
+### Implementation Steps
+
+#### 1. Create the World File
+
+Create `collision_test_world.sdf`:
+
+```xml
+<?xml version="1.0" ?>
+<sdf version="1.6">
+  <world name="collision_test_world">
+    <!-- Include a ground plane -->
+    <include>
+      <uri>model://ground_plane</uri>
+    </include>
+
+    <!-- Include sun for lighting -->
+    <include>
+      <uri>model://sun</uri>
+    </include>
+
+    <!-- Simple maze environment -->
+    <model name="wall_1">
+      <pose>0 5 0 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>10 0.2 2</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>10 0.2 2</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0.8 0.8 0.8 1</ambient>
+            <diffuse>0.8 0.8 0.8 1</diffuse>
+          </material>
+        </visual>
+        <inertial>
+          <mass>1</mass>
+          <inertia>
+            <ixx>1</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1</iyy>
+            <iyz>0</iyz>
+            <izz>1</izz>
+          </inertia>
+        </inertial>
+      </link>
+    </model>
+
+    <model name="obstacle_1">
+      <pose>2 2 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <cylinder>
+              <radius>0.5</radius>
+              <length>1</length>
+            </cylinder>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <cylinder>
+              <radius>0.5</radius>
+              <length>1</length>
+            </cylinder>
+          </geometry>
+          <material>
+            <ambient>1 0 0 1</ambient>
+            <diffuse>1 0 0 1</diffuse>
+          </material>
+        </visual>
+        <inertial>
+          <mass>1</mass>
+          <inertia>
+            <ixx>1</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1</iyy>
+            <iyz>0</iyz>
+            <izz>1</izz>
+          </inertia>
+        </inertial>
+      </link>
+    </model>
+
+    <model name="obstacle_2">
+      <pose>-2 -2 0.5 0 0 0</pose>
+      <link name="link">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>1 1 1</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0 1 0 1</ambient>
+            <diffuse>0 1 0 1</diffuse>
+          </material>
+        </visual>
+        <inertial>
+          <mass>1</mass>
+          <inertia>
+            <ixx>1</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1</iyy>
+            <iyz>0</iyz>
+            <izz>1</izz>
+          </inertia>
+        </inertial>
+      </link>
+    </model>
+
+    <!-- Add a simple robot model -->
+    <model name="test_robot">
+      <pose>0 0 0.5 0 0 0</pose>
+      <link name="chassis">
+        <collision name="collision">
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.3</size>
+            </box>
+          </geometry>
+        </collision>
+        <visual name="visual">
+          <geometry>
+            <box>
+              <size>0.5 0.5 0.3</size>
+            </box>
+          </geometry>
+          <material>
+            <ambient>0 0 1 1</ambient>
+            <diffuse>0 0 1 1</diffuse>
+          </material>
+        </visual>
+        <inertial>
+          <mass>5</mass>
+          <inertia>
+            <ixx>1</ixx>
+            <ixy>0</ixy>
+            <ixz>0</ixz>
+            <iyy>1</iyy>
+            <iyz>0</iyz>
+            <izz>1</izz>
+          </inertia>
+        </inertial>
+      </link>
+    </model>
+  </world>
+</sdf>
+```
+
+#### 2. Create the Robot Model with Sensors
+
+Create `test_robot.urdf`:
+
+```xml
+<?xml version="1.0"?>
+<robot name="test_robot">
+  <!-- Chassis -->
+  <link name="chassis">
+    <visual>
+      <geometry>
+        <box size="0.5 0.5 0.3"/>
+      </geometry>
+      <material name="blue">
+        <color rgba="0 0 1 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.5 0.5 0.3"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="5.0"/>
+      <inertia ixx="0.1" ixy="0.0" ixz="0.0" iyy="0.1" iyz="0.0" izz="0.1"/>
+    </inertial>
+  </link>
+
+  <!-- LiDAR Sensor -->
+  <link name="lidar_link">
+    <visual>
+      <geometry>
+        <cylinder radius="0.05" length="0.04"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0 0 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <cylinder radius="0.05" length="0.04"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.1"/>
+      <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
+    </inertial>
+  </link>
+
+  <joint name="lidar_joint" type="fixed">
+    <parent link="chassis"/>
+    <child link="lidar_link"/>
+    <origin xyz="0.15 0 0.1"/>
+  </joint>
+
+  <!-- IMU Sensor -->
+  <link name="imu_link">
+    <inertial>
+      <mass value="0.01"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <joint name="imu_joint" type="fixed">
+    <parent link="chassis"/>
+    <child link="imu_link"/>
+    <origin xyz="0 0 0.1"/>
+  </joint>
+
+  <!-- Camera -->
+  <link name="camera_link">
+    <visual>
+      <geometry>
+        <box size="0.02 0.08 0.04"/>
+      </geometry>
+      <material name="black">
+        <color rgba="0 0 0 1"/>
+      </material>
+    </visual>
+    <collision>
+      <geometry>
+        <box size="0.02 0.08 0.04"/>
+      </geometry>
+    </collision>
+    <inertial>
+      <mass value="0.01"/>
+      <inertia ixx="1e-6" ixy="0" ixz="0" iyy="1e-6" iyz="0" izz="1e-6"/>
+    </inertial>
+  </link>
+
+  <joint name="camera_joint" type="fixed">
+    <parent link="chassis"/>
+    <child link="camera_link"/>
+    <origin xyz="0.2 0 0.1" rpy="0 0 0"/>
+  </joint>
+
+  <!-- Gazebo plugins for sensors -->
+  <gazebo reference="chassis">
+    <material>Gazebo/Blue</material>
+    <mu1>0.2</mu1>
+    <mu2>0.2</mu2>
+  </gazebo>
+
+  <gazebo reference="lidar_link">
+    <sensor type="ray" name="lidar_sensor">
+      <pose>0 0 0 0 0 0</pose>
+      <visualize>true</visualize>
+      <update_rate>10</update_rate>
+      <ray>
+        <scan>
+          <horizontal>
+            <samples>360</samples>
+            <resolution>1</resolution>
+            <min_angle>-3.14159</min_angle>
+            <max_angle>3.14159</max_angle>
+          </horizontal>
+        </scan>
+        <range>
+          <min>0.1</min>
+          <max>10.0</max>
+          <resolution>0.01</resolution>
+        </range>
+      </ray>
+      <plugin name="lidar_controller" filename="libgazebo_ros_ray_sensor.so">
+        <ros>
+          <namespace>lidar</namespace>
+          <remapping>~/out:=scan</remapping>
+        </ros>
+        <output_type>sensor_msgs/LaserScan</output_type>
+        <frame_name>lidar_link</frame_name>
+      </plugin>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="imu_link">
+    <sensor name="imu_sensor" type="imu">
+      <always_on>true</always_on>
+      <update_rate>100</update_rate>
+      <visualize>false</visualize>
+      <topic>__default_topic__</topic>
+      <plugin name="imu_plugin" filename="libgazebo_ros_imu_sensor.so">
+        <ros>
+          <namespace>imu</namespace>
+          <remapping>~/out:=data</remapping>
+        </ros>
+        <frame_name>imu_link</frame_name>
+      </plugin>
+      <imu>
+        <angular_velocity>
+          <x>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>0.01</stddev>
+            </noise>
+          </x>
+          <y>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>0.01</stddev>
+            </noise>
+          </y>
+          <z>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>0.01</stddev>
+            </noise>
+          </z>
+        </angular_velocity>
+        <linear_acceleration>
+          <x>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>0.017</stddev>
+            </noise>
+          </x>
+          <y>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>0.017</stddev>
+            </noise>
+          </y>
+          <z>
+            <noise type="gaussian">
+              <mean>0.0</mean>
+              <stddev>0.017</stddev>
+            </noise>
+          </z>
+        </linear_acceleration>
+      </imu>
+    </sensor>
+  </gazebo>
+
+  <gazebo reference="camera_link">
+    <sensor type="camera" name="camera_sensor">
+      <always_on>true</always_on>
+      <update_rate>30.0</update_rate>
+      <camera name="head">
+        <horizontal_fov>1.047</horizontal_fov>
+        <image>
+          <format>R8G8B8</format>
+          <width>640</width>
+          <height>480</height>
+        </image>
+        <clip>
+          <near>0.1</near>
+          <far>100</far>
+        </clip>
+      </camera>
+      <plugin name="camera_controller" filename="libgazebo_ros_camera.so">
+        <alwaysOn>true</alwaysOn>
+        <updateRate>30.0</updateRate>
+        <cameraName>camera</cameraName>
+        <imageTopicName>image_raw</imageTopicName>
+        <cameraInfoTopicName>camera_info</cameraInfoTopicName>
+        <frameName>camera_link</frameName>
+      </plugin>
+    </sensor>
+  </gazebo>
+</robot>
+```
+
+#### 3. Create the Collision Detection Node
+
+```python
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import LaserScan
+from geometry_msgs.msg import Twist
+from nav_msgs.msg import Odometry
+import numpy as np
+
+class CollisionDetector(Node):
+    def __init__(self):
+        super().__init__('collision_detector')
+
+        # Subscribers
+        self.lidar_sub = self.create_subscription(
+            LaserScan, '/lidar/scan', self.lidar_callback, 10)
+        self.odom_sub = self.create_subscription(
+            Odometry, '/odom', self.odom_callback, 10)
+
+        # Publishers
+        self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
+        self.collision_pub = self.create_publisher(
+            Twist, '/collision_response', 10)  # For collision alerts
+
+        # Robot state
+        self.current_velocity = Twist()
+        self.collision_threshold = 0.5  # meters
+        self.safety_margin = 0.8  # meters
+
+        self.get_logger().info('Collision Detector initialized')
+
+    def lidar_callback(self, msg):
+        # Convert to numpy array and filter valid readings
+        ranges = np.array(msg.ranges)
+        valid_ranges = ranges[np.isfinite(ranges)]
+
+        if len(valid_ranges) == 0:
+            return
+
+        # Find minimum distance
+        min_distance = np.min(valid_ranges)
+
+        # Check for potential collision
+        if min_distance < self.collision_threshold:
+            self.get_logger().warn(f'Collision imminent! Distance: {min_distance:.2f}m')
+            self.execute_collision_avoidance()
+        elif min_distance < self.safety_margin:
+            self.get_logger().info(f'Obstacle detected: {min_distance:.2f}m')
+            self.slow_down_approach()
+        else:
+            self.get_logger().info(f'Path clear: {min_distance:.2f}m')
+
+    def odom_callback(self, msg):
+        # Store current velocity for collision response
+        self.current_velocity = msg.twist.twist
+
+    def execute_collision_avoidance(self):
+        """Emergency stop and turn to avoid collision"""
+        cmd_msg = Twist()
+        cmd_msg.linear.x = 0.0  # Stop linear motion
+        cmd_msg.angular.z = 0.5  # Turn right to avoid obstacle
+
+        self.cmd_pub.publish(cmd_msg)
+        self.collision_pub.publish(cmd_msg)
+
+    def slow_down_approach(self):
+        """Slow down when approaching obstacles"""
+        cmd_msg = Twist()
+        cmd_msg.linear.x = max(0.1, self.current_velocity.linear.x * 0.5)  # Reduce speed by half
+        cmd_msg.angular.z = self.current_velocity.angular.z  # Maintain turning
+
+        self.cmd_pub.publish(cmd_msg)
+
+def main(args=None):
+    rclpy.init(args=args)
+    collision_detector = CollisionDetector()
+
+    try:
+        rclpy.spin(collision_detector)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        collision_detector.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+#### 4. Create the Launch File
+
+Create `collision_test_launch.py`:
+
+```python
+from launch import LaunchDescription
+from launch.actions import IncludeLaunchDescription
+from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.substitutions import PathJoinSubstitution
+from launch_ros.actions import Node
+from launch.actions import ExecuteProcess
+from ament_index_python.packages import get_package_share_directory
+import os
+
+def generate_launch_description():
+    # Start Gazebo with the custom world
+    world_path = os.path.join(
+        get_package_share_directory('your_package'),
+        'worlds',
+        'collision_test_world.sdf'
+    )
+
+    gazebo = ExecuteProcess(
+        cmd=['gazebo', '--verbose', world_path, '-s', 'libgazebo_ros_factory.so'],
+        output='screen'
+    )
+
+    # Spawn the robot
+    spawn_robot = Node(
+        package='gazebo_ros',
+        executable='spawn_entity.py',
+        arguments=[
+            '-entity', 'test_robot',
+            '-file', os.path.join(get_package_share_directory('your_package'), 'models', 'test_robot.urdf'),
+            '-x', '0', '-y', '0', '-z', '0.5'
+        ],
+        output='screen'
+    )
+
+    # Start the collision detection node
+    collision_detector = Node(
+        package='your_package',
+        executable='collision_detector',
+        name='collision_detector',
+        output='screen'
+    )
+
+    return LaunchDescription([
+        gazebo,
+        spawn_robot,
+        collision_detector
+    ])
+```
+
+## Mini-Project 2: Unity High-Fidelity Interaction Scene
+
+### Objective
+Create a Unity scene that demonstrates high-fidelity rendering and human-robot interaction with physics-based triggers.
+
+### Implementation Steps
+
+#### 1. Unity Scene Setup Script
+
+```csharp
+using UnityEngine;
+using System.Collections;
+
+public class UnityInteractionScene : MonoBehaviour
+{
+    [Header("Robot Configuration")]
+    public GameObject robot;
+    public float robotSpeed = 2.0f;
+    public float robotRotationSpeed = 90.0f; // degrees per second
+
+    [Header("Interaction Objects")]
+    public GameObject[] interactionObjects;
+    public Material highlightedMaterial;
+    public Material defaultMaterial;
+
+    [Header("UI Elements")]
+    public UnityEngine.UI.Text interactionText;
+    public UnityEngine.UI.Slider distanceSlider;
+
+    private Renderer robotRenderer;
+    private bool isInteracting = false;
+    private GameObject currentInteractionTarget = null;
+
+    void Start()
+    {
+        // Initialize robot renderer
+        robotRenderer = robot.GetComponent<Renderer>();
+
+        // Set up interaction objects with triggers
+        SetupInteractionObjects();
+    }
+
+    void Update()
+    {
+        HandleRobotMovement();
+        CheckForInteractions();
+    }
+
+    void SetupInteractionObjects()
+    {
+        foreach (GameObject obj in interactionObjects)
+        {
+            // Add collider if not present
+            if (obj.GetComponent<Collider>() == null)
+            {
+                obj.AddComponent<BoxCollider>();
+            }
+
+            // Make it a trigger
+            obj.GetComponent<Collider>().isTrigger = true;
+
+            // Store original material
+            Renderer objRenderer = obj.GetComponent<Renderer>();
+            if (objRenderer != null)
+            {
+                defaultMaterial = objRenderer.material;
+            }
+        }
+    }
+
+    void HandleRobotMovement()
+    {
+        // Simple movement controls
+        float horizontal = Input.GetAxis("Horizontal");
+        float vertical = Input.GetAxis("Vertical");
+
+        Vector3 movement = new Vector3(horizontal, 0, vertical) * robotSpeed * Time.deltaTime;
+        robot.transform.Translate(movement, Space.World);
+
+        // Rotate robot based on movement direction
+        if (movement != Vector3.zero)
+        {
+            Quaternion newRotation = Quaternion.LookRotation(movement);
+            robot.transform.rotation = Quaternion.RotateTowards(
+                robot.transform.rotation,
+                newRotation,
+                robotRotationSpeed * Time.deltaTime
+            );
+        }
+    }
+
+    void CheckForInteractions()
+    {
+        // Check distance to interaction objects
+        foreach (GameObject obj in interactionObjects)
+        {
+            float distance = Vector3.Distance(robot.transform.position, obj.transform.position);
+
+            // Update UI
+            if (distanceSlider != null)
+            {
+                distanceSlider.value = Mathf.Clamp01(distance / 5.0f); // Normalize to 0-5m range
+            }
+
+            // Check if close enough for interaction
+            if (distance < 2.0f)
+            {
+                HighlightObject(obj);
+
+                if (interactionText != null)
+                {
+                    interactionText.text = $"Near {obj.name}\nPress E to interact";
+                }
+
+                // Check for interaction key
+                if (Input.GetKeyDown(KeyCode.E))
+                {
+                    InteractWithObject(obj);
+                }
+            }
+            else
+            {
+                RemoveHighlight(obj);
+            }
+        }
+    }
+
+    void HighlightObject(GameObject obj)
+    {
+        Renderer objRenderer = obj.GetComponent<Renderer>();
+        if (objRenderer != null && highlightedMaterial != null)
+        {
+            objRenderer.material = highlightedMaterial;
+        }
+    }
+
+    void RemoveHighlight(GameObject obj)
+    {
+        Renderer objRenderer = obj.GetComponent<Renderer>();
+        if (objRenderer != null && defaultMaterial != null)
+        {
+            objRenderer.material = defaultMaterial;
+        }
+    }
+
+    void InteractWithObject(GameObject obj)
+    {
+        if (isInteracting) return;
+
+        isInteracting = true;
+        currentInteractionTarget = obj;
+
+        // Change robot color to indicate interaction
+        if (robotRenderer != null)
+        {
+            robotRenderer.material.color = Color.green;
+        }
+
+        // Perform interaction based on object type
+        StartCoroutine(PerformInteraction(obj));
+    }
+
+    IEnumerator PerformInteraction(GameObject obj)
+    {
+        // Example interaction: make object pulse
+        Renderer objRenderer = obj.GetComponent<Renderer>();
+        if (objRenderer != null)
+        {
+            Color originalColor = objRenderer.material.color;
+            float pulseSpeed = 2.0f;
+
+            // Pulse animation
+            for (float t = 0; t < 2.0f; t += Time.deltaTime)
+            {
+                float pulse = Mathf.PingPong(t * pulseSpeed, 1.0f);
+                objRenderer.material.color = Color.Lerp(originalColor, Color.yellow, pulse);
+                yield return null;
+            }
+
+            objRenderer.material.color = originalColor;
+        }
+
+        // Reset interaction state
+        yield return new WaitForSeconds(0.5f);
+        if (robotRenderer != null)
+        {
+            robotRenderer.material.color = Color.blue; // Back to original color
+        }
+        isInteracting = false;
+        currentInteractionTarget = null;
+    }
+}
+```
+
+#### 2. Physics-Based Trigger System
+
+```csharp
+using UnityEngine;
+
+public class PhysicsTrigger : MonoBehaviour
+{
+    [Header("Trigger Settings")]
+    public float detectionRadius = 2.0f;
+    public LayerMask detectionLayer = -1; // All layers
+    public bool useContinuousDetection = false;
+
+    [Header("Visual Feedback")]
+    public GameObject detectionIndicator;
+    public Material activeMaterial;
+    public Material inactiveMaterial;
+
+    [Header("Events")]
+    public UnityEngine.Events.UnityEvent onObjectDetected;
+    public UnityEngine.Events.UnityEvent onObjectLost;
+
+    private Collider[] detectedObjects = new Collider[10];
+    private int lastDetectionCount = 0;
+
+    void Start()
+    {
+        if (detectionIndicator != null)
+        {
+            detectionIndicator.SetActive(false);
+        }
+    }
+
+    void Update()
+    {
+        DetectObjects();
+    }
+
+    void DetectObjects()
+    {
+        // Use Physics.OverlapSphere to detect objects in range
+        int detectionCount = Physics.OverlapSphereNonAlloc(
+            transform.position,
+            detectionRadius,
+            detectedObjects,
+            detectionLayer,
+            useContinuousDetection ? QueryTriggerInteraction.UseGlobal : QueryTriggerInteraction.Ignore
+        );
+
+        // Check if we detected new objects or lost old ones
+        if (detectionCount > 0 && lastDetectionCount == 0)
+        {
+            // New object detected
+            onObjectDetected?.Invoke();
+            ShowDetectionIndicator(true);
+        }
+        else if (detectionCount == 0 && lastDetectionCount > 0)
+        {
+            // All objects lost
+            onObjectLost?.Invoke();
+            ShowDetectionIndicator(false);
+        }
+
+        lastDetectionCount = detectionCount;
+    }
+
+    void ShowDetectionIndicator(bool show)
+    {
+        if (detectionIndicator != null)
+        {
+            detectionIndicator.SetActive(show);
+        }
+
+        // Change material based on detection state
+        Renderer triggerRenderer = GetComponent<Renderer>();
+        if (triggerRenderer != null)
+        {
+            triggerRenderer.material = show ? activeMaterial : inactiveMaterial;
+        }
+    }
+
+    // For visualization in the editor
+    void OnDrawGizmosSelected()
+    {
+        Gizmos.color = Color.yellow;
+        Gizmos.DrawWireSphere(transform.position, detectionRadius);
+    }
+}
+```
+
+#### 3. Data Export for AI Training
+
+```csharp
+using UnityEngine;
+using System.Collections.Generic;
+using System.IO;
+using System;
+
+public class UnityDataCollector : MonoBehaviour
+{
+    [Header("Data Collection")]
+    public bool collectData = false;
+    public string exportPath = "unity_training_data";
+    public int exportFrequency = 60; // frames
+
+    private int frameCount = 0;
+    private int sampleCount = 0;
+    private string sessionPath;
+
+    [System.Serializable]
+    public class TrainingSample
+    {
+        public string timestamp;
+        public int sampleId;
+        public RobotState robotState;
+        public List<EnvironmentState> environmentStates;
+        public List<SensorReading> sensorReadings;
+    }
+
+    [System.Serializable]
+    public class RobotState
+    {
+        public float[] position = new float[3];
+        public float[] rotation = new float[4]; // Quaternion
+        public float[] velocity = new float[3];
+        public float[] angularVelocity = new float[3];
+    }
+
+    [System.Serializable]
+    public class EnvironmentState
+    {
+        public string name;
+        public float[] position = new float[3];
+        public float[] rotation = new float[4];
+        public string objectType;
+    }
+
+    [System.Serializable]
+    public class SensorReading
+    {
+        public string sensorType;
+        public float[] data;
+        public float timestamp;
+    }
+
+    void Start()
+    {
+        // Create session directory
+        sessionPath = Path.Combine(exportPath, $"session_{DateTime.Now:yyyyMMdd_HHmmss}");
+        Directory.CreateDirectory(sessionPath);
+        Directory.CreateDirectory(Path.Combine(sessionPath, "images"));
+        Directory.CreateDirectory(Path.Combine(sessionPath, "metadata"));
+    }
+
+    void Update()
+    {
+        if (!collectData) return;
+
+        frameCount++;
+        if (frameCount % exportFrequency == 0)
+        {
+            CollectTrainingSample();
+        }
+    }
+
+    void CollectTrainingSample()
+    {
+        TrainingSample sample = new TrainingSample();
+        sample.timestamp = DateTime.Now.ToString("o");
+        sample.sampleId = sampleCount;
+
+        // Collect robot state
+        sample.robotState = new RobotState();
+        sample.robotState.position[0] = transform.position.x;
+        sample.robotState.position[1] = transform.position.y;
+        sample.robotState.position[2] = transform.position.z;
+
+        sample.robotState.rotation[0] = transform.rotation.x;
+        sample.robotState.rotation[1] = transform.rotation.y;
+        sample.robotState.rotation[2] = transform.rotation.z;
+        sample.robotState.rotation[3] = transform.rotation.w;
+
+        // Collect environment states
+        sample.environmentStates = new List<EnvironmentState>();
+        GameObject[] environmentObjects = GameObject.FindGameObjectsWithTag("Environment");
+        foreach (GameObject obj in environmentObjects)
+        {
+            EnvironmentState envState = new EnvironmentState();
+            envState.name = obj.name;
+            envState.position[0] = obj.transform.position.x;
+            envState.position[1] = obj.transform.position.y;
+            envState.position[2] = obj.transform.position.z;
+            envState.objectType = obj.tag;
+            sample.environmentStates.Add(envState);
+        }
+
+        // Collect sensor readings (simulated)
+        sample.sensorReadings = new List<SensorReading>();
+        SensorReading lidarReading = new SensorReading();
+        lidarReading.sensorType = "lidar";
+        lidarReading.data = GenerateSimulatedLidarData();
+        lidarReading.timestamp = Time.time;
+        sample.sensorReadings.Add(lidarReading);
+
+        // Save sample metadata
+        string json = JsonUtility.ToJson(sample, true);
+        string filename = Path.Combine(sessionPath, "metadata", $"sample_{sampleCount:D6}.json");
+        File.WriteAllText(filename, json);
+
+        // Capture and save image
+        string imageFilename = Path.Combine(sessionPath, "images", $"image_{sampleCount:D6}.png");
+        CaptureScreenImage(imageFilename);
+
+        sampleCount++;
+        Debug.Log($"Collected training sample {sampleCount}");
+    }
+
+    float[] GenerateSimulatedLidarData()
+    {
+        // Generate simulated 360-degree LiDAR data
+        float[] lidarData = new float[360];
+        for (int i = 0; i < 360; i++)
+        {
+            // Simulate distances based on environment
+            float angle = i * Mathf.Deg2Rad;
+            Vector3 direction = new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle));
+
+            // Raycast to find distance to nearest object
+            RaycastHit hit;
+            if (Physics.Raycast(transform.position, direction, out hit, 10.0f))
+            {
+                lidarData[i] = hit.distance;
+            }
+            else
+            {
+                lidarData[i] = 10.0f; // Max range
+            }
+        }
+        return lidarData;
+    }
+
+    void CaptureScreenImage(string filename)
+    {
+        // Create a texture to read pixels from
+        Texture2D texture = new Texture2D(Screen.width, Screen.height, TextureFormat.RGB24, false);
+
+        // Read screen contents into the texture
+        texture.ReadPixels(new Rect(0, 0, Screen.width, Screen.height), 0, 0);
+        texture.Apply();
+
+        // Encode texture into PNG
+        byte[] bytes = texture.EncodeToPNG();
+        File.WriteAllBytes(filename, bytes);
+
+        // Clean up
+        Destroy(texture);
+    }
+}
+```
+
+## Running the Complete Projects
+
+### For Gazebo Project:
+1. Create the world file and robot model files
+2. Build and source your ROS 2 workspace
+3. Launch the simulation: `ros2 launch your_package collision_test_launch.py`
+4. Run the collision detection node
+5. Observe the robot's collision avoidance behavior
+
+### For Unity Project:
+1. Create a new Unity project
+2. Import the provided scripts
+3. Set up the scene with the robot and interaction objects
+4. Attach the scripts to appropriate game objects
+5. Build and run the scene
+6. Use WASD keys to move and E to interact
+
+## Project Extensions
+
+### Advanced Challenges:
+
+#### Gazebo Project:
+1. Add more complex obstacle shapes and movement patterns
+2. Implement path planning algorithms for collision-free navigation
+3. Create multiple robot scenarios with collision avoidance between robots
+4. Add sensor fusion (combine LiDAR, camera, and IMU data)
+
+#### Unity Project:
+1. Implement realistic physics-based interactions
+2. Add audio feedback for interactions
+3. Create more complex environment scenarios
+4. Implement machine learning agents for autonomous behavior
+
+## Summary
+
+These mini-projects demonstrate the practical application of digital twin concepts. The Gazebo collision test environment shows how to create realistic physics simulations with sensor feedback, while the Unity interaction scene demonstrates high-fidelity rendering and human-robot interaction. Both projects provide valuable training data for AI systems and illustrate the power of simulation in robotics development.

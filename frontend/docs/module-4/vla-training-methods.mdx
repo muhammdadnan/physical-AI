@@ -1,0 +1,369 @@
+---
+sidebar_position: 6
+---
+
+# VLA Training Methods
+
+## Learning Objectives
+- Understand imitation learning for VLA systems
+- Learn reinforcement learning approaches
+- Master multi-task learning techniques
+- Implement curriculum learning strategies
+
+## Table of Contents
+1. [Imitation Learning](#imitation-learning)
+2. [Reinforcement Learning](#reinforcement-learning)
+3. [Multi-Task Learning](#multi-task-learning)
+4. [Curriculum Learning](#curriculum-learning)
+5. [Data Collection and Annotation](#data-collection)
+
+## Imitation Learning
+
+### Behavioral Cloning
+The most straightforward approach to training VLA systems:
+
+```python
+import torch
+import torch.nn as nn
+import torch.optim as optim
+
+class BehavioralCloning:
+    def __init__(self, vla_model, learning_rate=1e-4):
+        self.model = vla_model
+        self.optimizer = optim.Adam(
+            self.model.parameters(), lr=learning_rate)
+        self.criterion = nn.MSELoss()
+
+    def train_step(self, observations, language, actions):
+        # Forward pass
+        predicted_actions = self.model(observations, language)
+
+        # Compute loss
+        loss = self.criterion(predicted_actions, actions)
+
+        # Backward pass
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+
+        return loss.item()
+```
+
+### Dataset Aggregation (DAgger)
+Iterative approach to improve policy performance:
+
+```python
+class DAggerTraining:
+    def __init__(self, expert_policy, student_policy):
+        self.expert = expert_policy
+        self.student = student_policy
+        self.dataset = []
+
+    def collect_data(self, env, num_episodes=10):
+        for episode in range(num_episodes):
+            obs = env.reset()
+            done = False
+
+            while not done:
+                # Get action from current student policy
+                student_action = self.student(obs)
+
+                # Get expert action for same state
+                expert_action = self.expert(obs)
+
+                # Add to dataset
+                self.dataset.append((obs, expert_action))
+
+                # Step environment
+                obs, reward, done, info = env.step(student_action)
+
+    def train_student(self, num_epochs=100):
+        for epoch in range(num_epochs):
+            # Train on aggregated dataset
+            for obs, expert_action in self.dataset:
+                self.student.train_step(obs, expert_action)
+```
+
+### Inverse Reinforcement Learning
+Learning reward functions from expert demonstrations:
+
+```python
+class InverseRL:
+    def __init__(self, discriminator, policy_network):
+        self.discriminator = discriminator
+        self.policy = policy_network
+
+    def compute_reward(self, state, action, next_state):
+        # Use discriminator to compute reward
+        state_action_pair = torch.cat([state, action], dim=-1)
+        reward = -torch.log(self.discriminator(state_action_pair))
+        return reward
+```
+
+## Reinforcement Learning
+
+### Deep Q-Networks for VLA
+Adapting DQN for vision-language-action spaces:
+
+```python
+import torch.nn.functional as F
+
+class VLADQN(nn.Module):
+    def __init__(self, vision_dim, lang_dim, action_dim):
+        super().__init__()
+        self.vision_encoder = VisionEncoder(vision_dim)
+        self.lang_encoder = LanguageEncoder(lang_dim)
+        self.fusion = nn.Linear(vision_dim + lang_dim, 512)
+        self.q_network = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, action_dim)
+        )
+
+    def forward(self, vision_input, lang_input):
+        vision_features = self.vision_encoder(vision_input)
+        lang_features = self.lang_encoder(lang_input)
+
+        fused = self.fusion(
+            torch.cat([vision_features, lang_features], dim=-1))
+
+        q_values = self.q_network(fused)
+        return q_values
+
+class VLA_DQN_Agent:
+    def __init__(self):
+        self.q_network = VLADQN(512, 512, 7)  # 7-DoF actions
+        self.target_network = VLADQN(512, 512, 7)
+        self.optimizer = optim.Adam(self.q_network.parameters())
+
+    def update(self, batch):
+        states_vision, states_lang, actions, rewards, next_states_vision, next_states_lang, dones = batch
+
+        # Compute current Q values
+        current_q_values = self.q_network(states_vision, states_lang).gather(1, actions.unsqueeze(1))
+
+        # Compute next Q values
+        with torch.no_grad():
+            next_q_values = self.target_network(next_states_vision, next_states_lang).max(1)[0]
+            target_q_values = rewards + (0.99 * next_q_values * (1 - dones))
+
+        # Compute loss
+        loss = F.mse_loss(current_q_values.squeeze(), target_q_values)
+
+        # Update network
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+```
+
+### Actor-Critic Methods
+Continuous action space methods for robotic control:
+
+```python
+class VLAPPO(nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.vision_encoder = VisionEncoder()
+        self.lang_encoder = LanguageEncoder()
+        self.fusion = nn.Linear(1024, 512)
+
+        # Actor network
+        self.actor = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 7),  # 7-DoF robot actions
+            nn.Tanh()  # Normalize to [-1, 1]
+        )
+
+        # Critic network
+        self.critic = nn.Sequential(
+            nn.Linear(512, 256),
+            nn.ReLU(),
+            nn.Linear(256, 1)
+        )
+
+    def get_action(self, vision_input, lang_input):
+        features = self.encode_features(vision_input, lang_input)
+        action_mean = self.actor(features)
+        return action_mean
+
+    def get_value(self, vision_input, lang_input):
+        features = self.encode_features(vision_input, lang_input)
+        return self.critic(features)
+
+    def encode_features(self, vision_input, lang_input):
+        vision_features = self.vision_encoder(vision_input)
+        lang_features = self.lang_encoder(lang_input)
+        return self.fusion(torch.cat([vision_features, lang_features], dim=-1))
+```
+
+## Multi-Task Learning
+
+### Shared Representations
+Learning shared representations across multiple tasks:
+
+```python
+class MultiTaskVLA(nn.Module):
+    def __init__(self, num_tasks, action_dim=7):
+        super().__init__()
+        # Shared encoder
+        self.vision_encoder = VisionEncoder()
+        self.lang_encoder = LanguageEncoder()
+        self.shared_fusion = nn.Linear(1024, 512)
+
+        # Task-specific heads
+        self.task_heads = nn.ModuleList([
+            nn.Linear(512, action_dim) for _ in range(num_tasks)
+        ])
+
+        # Task embedding
+        self.task_embedding = nn.Embedding(num_tasks, 64)
+
+    def forward(self, vision_input, lang_input, task_id):
+        # Encode modalities
+        vision_features = self.vision_encoder(vision_input)
+        lang_features = self.lang_encoder(lang_input)
+
+        # Combine with task embedding
+        fused = self.shared_fusion(
+            torch.cat([vision_features, lang_features], dim=-1))
+
+        task_emb = self.task_embedding(task_id)
+        fused_with_task = torch.cat([fused, task_emb.expand(fused.size(0), -1)], dim=-1)
+
+        # Select task-specific head
+        action = self.task_heads[task_id](fused_with_task)
+        return action
+```
+
+### Curriculum Learning
+Progressive training on increasingly complex tasks:
+
+```python
+class CurriculumVLA:
+    def __init__(self, vla_model):
+        self.model = vla_model
+        self.curriculum = [
+            {"task": "reach", "difficulty": 1},
+            {"task": "grasp", "difficulty": 2},
+            {"task": "manipulate", "difficulty": 3},
+            {"task": "complex_task", "difficulty": 4}
+        ]
+        self.current_level = 0
+
+    def evaluate_performance(self, task):
+        # Evaluate current performance on task
+        success_rate = self.test_task(task)
+        return success_rate
+
+    def advance_curriculum(self):
+        if self.current_level < len(self.curriculum) - 1:
+            current_task = self.curriculum[self.current_level]["task"]
+            performance = self.evaluate_performance(current_task)
+
+            if performance > 0.8:  # Threshold for advancement
+                self.current_level += 1
+                print(f"Advancing to {self.curriculum[self.current_level]['task']}")
+                return True
+        return False
+```
+
+## Data Collection and Annotation
+
+### Human Demonstration Collection
+```python
+class DataCollector:
+    def __init__(self, robot_interface, camera_interface):
+        self.robot = robot_interface
+        self.camera = camera_interface
+        self.data_buffer = []
+
+    def collect_demonstration(self, task_description):
+        observations = []
+        actions = []
+        language_instructions = []
+
+        # Record initial state
+        initial_obs = self.camera.capture()
+        initial_state = self.robot.get_state()
+
+        print(f"Perform task: {task_description}")
+
+        # Collect demonstration
+        while not self.is_task_complete():
+            current_obs = self.camera.capture()
+            current_state = self.robot.get_state()
+            current_action = self.robot.get_action()  # From human operator
+
+            observations.append(current_obs)
+            actions.append(current_action)
+            language_instructions.append(task_description)
+
+        # Store demonstration
+        demonstration = {
+            'observations': observations,
+            'actions': actions,
+            'instructions': language_instructions,
+            'task': task_description
+        }
+
+        self.data_buffer.append(demonstration)
+        return demonstration
+```
+
+### Synthetic Data Generation
+Using simulation for data augmentation:
+
+```python
+class SyntheticDataGenerator:
+    def __init__(self, simulator):
+        self.sim = simulator
+
+    def generate_diverse_scenarios(self, base_task, num_variations=1000):
+        synthetic_data = []
+
+        for i in range(num_variations):
+            # Randomize object positions
+            self.sim.randomize_object_positions()
+
+            # Randomize lighting conditions
+            self.sim.randomize_lighting()
+
+            # Randomize textures
+            self.sim.randomize_textures()
+
+            # Collect demonstration
+            demo = self.sim.collect_demonstration(base_task)
+            synthetic_data.append(demo)
+
+        return synthetic_data
+```
+
+## Training Optimization
+
+### Mixed Precision Training
+```python
+from torch.cuda.amp import GradScaler, autocast
+
+class MixedPrecisionVLA:
+    def __init__(self, model):
+        self.model = model
+        self.scaler = GradScaler()
+
+    def train_step(self, vision_input, lang_input, actions):
+        self.optimizer.zero_grad()
+
+        with autocast():
+            pred_actions = self.model(vision_input, lang_input)
+            loss = self.criterion(pred_actions, actions)
+
+        self.scaler.scale(loss).backward()
+        self.scaler.step(self.optimizer)
+        self.scaler.update()
+
+        return loss.item()
+```
+
+## Summary
+
+This chapter covered comprehensive training methodologies for VLA systems, including imitation learning, reinforcement learning, multi-task learning, and curriculum learning approaches.

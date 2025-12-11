@@ -1,0 +1,896 @@
+---
+title: LLM Cognitive Planning
+---
+
+# LLM Cognitive Planning
+
+## Introduction to LLM-Based Cognitive Planning
+
+Large Language Models (LLMs) have emerged as powerful tools for cognitive planning in robotics. They can translate high-level natural language commands into executable action sequences, enabling robots to understand complex tasks and break them down into manageable steps. This cognitive planning capability is essential for Vision-Language-Action (VLA) systems that bridge human intent with robotic execution.
+
+## Cognitive Planning Architecture
+
+### Planning Pipeline Components
+
+The cognitive planning pipeline consists of several key components:
+
+1. **Goal Understanding**: Interpreting natural language commands
+2. **Task Decomposition**: Breaking high-level goals into sub-tasks
+3. **Action Sequencing**: Ordering actions logically and safely
+4. **Context Awareness**: Incorporating environmental and state information
+5. **Execution Planning**: Generating ROS 2 action sequences
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from geometry_msgs.msg import Pose
+import openai
+import json
+import asyncio
+from typing import List, Dict, Any
+
+class LLMCognitivePlanner(Node):
+    def __init__(self):
+        super().__init__('llm_cognitive_planner')
+
+        # LLM configuration
+        self.llm_client = openai.OpenAI(api_key=self.get_parameter_or_set('openai_api_key', ''))
+
+        # Publishers
+        self.plan_pub = self.create_publisher(String, 'cognitive_plan', 10)
+        self.action_pub = self.create_publisher(String, 'action_sequence', 10)
+
+        # Subscribers
+        self.command_sub = self.create_subscription(
+            String,
+            'voice_commands',
+            self.command_callback,
+            10
+        )
+
+        # Context information
+        self.robot_state = {}
+        self.environment_map = {}
+        self.object_database = {}
+
+        self.get_logger().info('LLM Cognitive Planner initialized')
+
+    def command_callback(self, msg):
+        """
+        Process natural language commands and generate plans
+        """
+        command = msg.data
+        self.get_logger().info(f'Received command: {command}')
+
+        # Generate cognitive plan using LLM
+        plan = self.generate_cognitive_plan(command)
+
+        if plan:
+            # Publish the plan
+            plan_msg = String()
+            plan_msg.data = json.dumps(plan)
+            self.plan_pub.publish(plan_msg)
+
+            # Convert plan to action sequence
+            action_sequence = self.plan_to_actions(plan)
+
+            # Publish action sequence
+            action_msg = String()
+            action_msg.data = json.dumps(action_sequence)
+            self.action_pub.publish(action_msg)
+
+    def generate_cognitive_plan(self, command: str) -> Dict[str, Any]:
+        """
+        Generate cognitive plan using LLM
+        """
+        try:
+            # Construct the planning prompt
+            prompt = self.construct_planning_prompt(command)
+
+            # Call the LLM
+            response = self.llm_client.chat.completions.create(
+                model="gpt-4-turbo",  # Use appropriate model
+                messages=[
+                    {"role": "system", "content": self.get_planning_system_prompt()},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=1000,
+                response_format={"type": "json_object"}
+            )
+
+            # Parse the response
+            plan_data = json.loads(response.choices[0].message.content)
+            return plan_data
+
+        except Exception as e:
+            self.get_logger().error(f'LLM planning error: {e}')
+            return None
+
+    def construct_planning_prompt(self, command: str) -> str:
+        """
+        Construct the planning prompt with context
+        """
+        prompt = f"""
+        Command: {command}
+
+        Robot Capabilities:
+        - Navigation: Can move to locations
+        - Manipulation: Can pick up and place objects
+        - Perception: Can detect and identify objects
+        - Interaction: Can open doors, press buttons
+
+        Environment Context:
+        - Known locations: {list(self.environment_map.keys())}
+        - Known objects: {list(self.object_database.keys())}
+        - Current robot state: {self.robot_state}
+
+        Please decompose this command into a sequence of executable sub-tasks.
+        Each sub-task should be specific and actionable.
+        Include necessary preconditions and expected outcomes.
+        """
+        return prompt
+
+    def get_planning_system_prompt(self) -> str:
+        """
+        System prompt for cognitive planning
+        """
+        return """
+        You are a cognitive planning assistant for a humanoid robot.
+        Your task is to decompose high-level natural language commands
+        into specific, executable sub-tasks that the robot can perform.
+
+        Each plan should include:
+        1. Sequential steps
+        2. Preconditions for each step
+        3. Expected outcomes
+        4. Error handling considerations
+        5. Safety constraints
+
+        Output the plan in JSON format with the following structure:
+        {
+          "command": "original command",
+          "decomposition": [
+            {
+              "step": 1,
+              "description": "what to do",
+              "action": "specific action type",
+              "parameters": {"param1": "value1"},
+              "preconditions": ["condition1", "condition2"],
+              "expected_outcome": "what should happen",
+              "safety_considerations": ["consideration1", "consideration2"]
+            }
+          ],
+          "overall_goal": "what the complete command should achieve"
+        }
+        """
+```
+
+## Task Decomposition Strategies
+
+### Hierarchical Task Networks (HTN)
+
+```python
+class HTNPlanner:
+    def __init__(self, llm_client):
+        self.llm_client = llm_client
+
+    def decompose_task(self, high_level_task: str, context: Dict) -> List[Dict]:
+        """
+        Decompose high-level task using hierarchical approach
+        """
+        # Define common task patterns
+        task_patterns = {
+            "clean_room": [
+                {"action": "navigate", "parameters": {"location": "start_point"}},
+                {"action": "scan_environment", "parameters": {}},
+                {"action": "identify_objects", "parameters": {"category": "trash"}},
+                {"action": "pickup_object", "parameters": {}},
+                {"action": "navigate", "parameters": {"location": "disposal"}},
+                {"action": "place_object", "parameters": {}},
+                {"action": "return_to_start", "parameters": {}}
+            ],
+            "fetch_object": [
+                {"action": "identify_object", "parameters": {"target": "object_name"}},
+                {"action": "navigate", "parameters": {"location": "object_location"}},
+                {"action": "pickup_object", "parameters": {"target": "object_name"}},
+                {"action": "navigate", "parameters": {"location": "delivery_location"}},
+                {"action": "place_object", "parameters": {"location": "delivery_location"}}
+            ]
+        }
+
+        # Use LLM to match task or create new decomposition
+        if high_level_task.lower() in task_patterns:
+            return task_patterns[high_level_task.lower()]
+        else:
+            return self.llm_decompose_task(high_level_task, context)
+
+    def llm_decompose_task(self, task: str, context: Dict) -> List[Dict]:
+        """
+        Use LLM to decompose unfamiliar tasks
+        """
+        prompt = f"""
+        Task: {task}
+
+        Context: {json.dumps(context, indent=2)}
+
+        Decompose this task into a sequence of specific, executable actions.
+        Each action should have a clear action type and parameters.
+
+        Available action types:
+        - navigate: Move to a location
+        - identify_object: Find an object in the environment
+        - pickup_object: Pick up an object
+        - place_object: Place an object at a location
+        - scan_environment: Look around and identify objects
+        - open_door: Open a door
+        - press_button: Press a button
+
+        Return as JSON array of action objects.
+        """
+
+        try:
+            response = self.llm_client.chat.completions.create(
+                model="gpt-4-turbo",
+                messages=[
+                    {"role": "system", "content": "You are a task decomposition expert. Return only valid JSON."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"}
+            )
+
+            result = json.loads(response.choices[0].message.content)
+            return result.get("actions", [])
+
+        except Exception as e:
+            print(f"LLM task decomposition error: {e}")
+            return []
+```
+
+## Action Sequencing and Validation
+
+### Sequential Action Planning
+
+```python
+class ActionSequencer:
+    def __init__(self, robot_capabilities: Dict):
+        self.capabilities = robot_capabilities
+        self.action_precedence = {
+            "pickup_object": ["navigate", "identify_object"],
+            "place_object": ["navigate"],
+            "open_door": ["navigate"],
+            "press_button": ["navigate"]
+        }
+
+    def sequence_actions(self, decomposed_tasks: List[Dict]) -> List[Dict]:
+        """
+        Sequence actions logically and safely
+        """
+        # Validate action dependencies
+        validated_sequence = []
+
+        for task in decomposed_tasks:
+            action = task["action"]
+
+            # Check if required preceding actions are in sequence
+            required_actions = self.action_precedence.get(action, [])
+            for req_action in required_actions:
+                if not self.is_action_available(req_action, validated_sequence):
+                    # Add required action if not already present
+                    required_task = self.create_required_task(req_action, task)
+                    validated_sequence.append(required_task)
+
+            validated_sequence.append(task)
+
+        return validated_sequence
+
+    def is_action_available(self, action: str, sequence: List[Dict]) -> bool:
+        """
+        Check if an action is available in the sequence
+        """
+        for task in sequence:
+            if task["action"] == action:
+                return True
+        return False
+
+    def create_required_task(self, action: str, dependent_task: Dict) -> Dict:
+        """
+        Create a required task based on dependencies
+        """
+        # This would use context to create appropriate parameters
+        return {
+            "action": action,
+            "parameters": {},
+            "required_by": dependent_task["action"]
+        }
+
+    def validate_plan(self, action_sequence: List[Dict]) -> Dict[str, Any]:
+        """
+        Validate the action sequence for feasibility
+        """
+        validation_result = {
+            "valid": True,
+            "errors": [],
+            "warnings": [],
+            "safety_issues": []
+        }
+
+        # Check for capability constraints
+        for i, action in enumerate(action_sequence):
+            action_type = action["action"]
+
+            if action_type not in self.capabilities:
+                validation_result["errors"].append(
+                    f"Action {action_type} not supported by robot"
+                )
+                validation_result["valid"] = False
+
+            # Check for safety constraints
+            if self.is_unsafe_action(action, action_sequence[:i]):
+                validation_result["safety_issues"].append(
+                    f"Unsafe action: {action_type}"
+                )
+
+        return validation_result
+
+    def is_unsafe_action(self, action: Dict, previous_actions: List[Dict]) -> bool:
+        """
+        Check if an action is unsafe given previous actions
+        """
+        # Example safety checks
+        if action["action"] == "pickup_object":
+            # Check if robot is already carrying something
+            for prev_action in reversed(previous_actions):
+                if prev_action["action"] == "pickup_object" and not prev_action.get("placed", False):
+                    return True  # Can't carry multiple objects
+        return False
+```
+
+## Context-Aware Planning
+
+### Environmental Context Integration
+
+```python
+class ContextAwarePlanner:
+    def __init__(self, node):
+        self.node = node
+        self.environment_context = {}
+        self.object_locations = {}
+        self.robot_state = {}
+
+    def update_environment_context(self, map_data: Dict, object_data: Dict, robot_pose: Pose):
+        """
+        Update environmental context for planning
+        """
+        self.environment_context = map_data
+        self.object_locations = object_data
+        self.robot_state['pose'] = robot_pose
+
+    def contextualize_plan(self, basic_plan: List[Dict]) -> List[Dict]:
+        """
+        Add environmental context to basic plan
+        """
+        contextualized_plan = []
+
+        for step in basic_plan:
+            contextualized_step = step.copy()
+
+            # Add location context for navigation
+            if step["action"] == "navigate":
+                location = step["parameters"].get("location")
+                if location in self.environment_context:
+                    contextualized_step["parameters"]["waypoints"] = \
+                        self.environment_context[location].get("waypoints", [])
+                    contextualized_step["parameters"]["obstacles"] = \
+                        self.environment_context[location].get("obstacles", [])
+
+            # Add object context for manipulation
+            elif step["action"] in ["pickup_object", "identify_object"]:
+                target = step["parameters"].get("target")
+                if target in self.object_locations:
+                    contextualized_step["parameters"]["position"] = \
+                        self.object_locations[target]["position"]
+                    contextualized_step["parameters"]["properties"] = \
+                        self.object_locations[target]["properties"]
+
+            contextualized_plan.append(contextualized_step)
+
+        return contextualized_plan
+
+    def adapt_plan_to_context(self, plan: List[Dict], current_context: Dict) -> List[Dict]:
+        """
+        Adapt plan based on current environmental context
+        """
+        adapted_plan = []
+
+        for step in plan:
+            # Check if environment has changed
+            if self.environment_has_changed(step, current_context):
+                # Regenerate this step with new context
+                adapted_step = self.regenerate_step_with_context(step, current_context)
+                adapted_plan.append(adapted_step)
+            else:
+                adapted_plan.append(step)
+
+        return adapted_plan
+
+    def environment_has_changed(self, step: Dict, current_context: Dict) -> bool:
+        """
+        Check if environment has changed since plan creation
+        """
+        if step["action"] == "navigate":
+            location = step["parameters"].get("location")
+            if location in current_context.get("dynamic_obstacles", {}):
+                return True
+        return False
+
+    def regenerate_step_with_context(self, step: Dict, current_context: Dict) -> Dict:
+        """
+        Regenerate a step with updated context
+        """
+        # Use LLM to regenerate step with new context
+        prompt = f"""
+        Original step: {json.dumps(step)}
+        Current context: {json.dumps(current_context)}
+
+        Regenerate this step considering the current environmental context.
+        """
+
+        try:
+            response = self.node.llm_client.chat.completions.create(
+                model="gpt-4-turbo",
+                messages=[
+                    {"role": "system", "content": "Regenerate the action step with current context."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"}
+            )
+
+            return json.loads(response.choices[0].message.content)
+
+        except Exception as e:
+            self.node.get_logger().error(f'Context regeneration error: {e}')
+            return step  # Return original if regeneration fails
+```
+
+## ROS 2 Action Execution Planning
+
+### Converting Plans to ROS 2 Actions
+
+```python
+from geometry_msgs.msg import PoseStamped
+from nav2_msgs.action import NavigateToPose
+from rclpy.action import ActionClient
+from std_msgs.msg import String
+import rclpy
+
+class ROS2ActionPlanner:
+    def __init__(self, node):
+        self.node = node
+
+        # Action clients for different capabilities
+        self.nav_client = ActionClient(node, NavigateToPose, 'navigate_to_pose')
+
+        # Publishers for different action types
+        self.manipulation_pub = node.create_publisher(String, 'manipulation_commands', 10)
+        self.perception_pub = node.create_publisher(String, 'perception_requests', 10)
+
+    def plan_to_ros2_actions(self, cognitive_plan: List[Dict]) -> List[Dict]:
+        """
+        Convert cognitive plan to ROS 2 action sequence
+        """
+        ros2_actions = []
+
+        for step in cognitive_plan:
+            action_type = step["action"]
+
+            if action_type == "navigate":
+                ros2_action = self.create_navigation_action(step)
+            elif action_type == "pickup_object":
+                ros2_action = self.create_manipulation_action(step, "pickup")
+            elif action_type == "place_object":
+                ros2_action = self.create_manipulation_action(step, "place")
+            elif action_type == "identify_object":
+                ros2_action = self.create_perception_action(step)
+            else:
+                ros2_action = self.create_generic_action(step)
+
+            ros2_actions.append(ros2_action)
+
+        return ros2_actions
+
+    def create_navigation_action(self, step: Dict) -> Dict:
+        """
+        Create ROS 2 navigation action
+        """
+        target_location = step["parameters"].get("location")
+
+        # This would look up the actual pose for the location
+        target_pose = self.get_pose_for_location(target_location)
+
+        return {
+            "action_type": "navigation",
+            "action_name": "NavigateToPose",
+            "parameters": {
+                "target_pose": target_pose
+            },
+            "timeout": 60.0,
+            "retry_count": 3
+        }
+
+    def create_manipulation_action(self, step: Dict, manipulation_type: str) -> Dict:
+        """
+        Create ROS 2 manipulation action
+        """
+        return {
+            "action_type": "manipulation",
+            "action_name": "ManipulationAction",
+            "parameters": {
+                "type": manipulation_type,
+                "object": step["parameters"].get("target"),
+                "position": step["parameters"].get("position")
+            },
+            "timeout": 30.0,
+            "retry_count": 2
+        }
+
+    def create_perception_action(self, step: Dict) -> Dict:
+        """
+        Create ROS 2 perception action
+        """
+        return {
+            "action_type": "perception",
+            "action_name": "ObjectDetection",
+            "parameters": {
+                "target_object": step["parameters"].get("target"),
+                "search_area": step["parameters"].get("search_area", "current_view")
+            },
+            "timeout": 10.0,
+            "retry_count": 1
+        }
+
+    def create_generic_action(self, step: Dict) -> Dict:
+        """
+        Create generic action for unsupported types
+        """
+        return {
+            "action_type": "generic",
+            "action_name": "GenericAction",
+            "parameters": step["parameters"],
+            "description": step["description"],
+            "timeout": 15.0,
+            "retry_count": 1
+        }
+
+    def get_pose_for_location(self, location_name: str) -> PoseStamped:
+        """
+        Get pose for a named location
+        """
+        # This would look up from a location database
+        # For now, return a dummy pose
+        pose = PoseStamped()
+        pose.header.frame_id = "map"
+        pose.pose.position.x = 0.0
+        pose.pose.position.y = 0.0
+        pose.pose.position.z = 0.0
+        pose.pose.orientation.w = 1.0
+        return pose
+```
+
+## Safety and Grounding Considerations
+
+### Plan Safety Validation
+
+```python
+class SafetyValidator:
+    def __init__(self, node):
+        self.node = node
+        self.safety_constraints = {
+            "max_navigation_distance": 10.0,  # meters
+            "max_manipulation_weight": 5.0,   # kg
+            "safe_approach_distance": 0.5,    # meters
+            "collision_threshold": 0.1        # meters
+        }
+
+    def validate_plan_safety(self, action_sequence: List[Dict]) -> Dict[str, Any]:
+        """
+        Validate plan safety against constraints
+        """
+        safety_report = {
+            "safe": True,
+            "violations": [],
+            "warnings": [],
+            "risk_level": "low"  # low, medium, high
+        }
+
+        for i, action in enumerate(action_sequence):
+            action_type = action["action"]
+
+            if action_type == "navigate":
+                violation = self.check_navigation_safety(action)
+                if violation:
+                    safety_report["violations"].append(f"Step {i}: {violation}")
+                    safety_report["safe"] = False
+
+            elif action_type == "pickup_object":
+                violation = self.check_manipulation_safety(action)
+                if violation:
+                    safety_report["violations"].append(f"Step {i}: {violation}")
+                    safety_report["safe"] = False
+
+        # Calculate overall risk level
+        if len(safety_report["violations"]) > 0:
+            safety_report["risk_level"] = "high"
+        elif len(safety_report["warnings"]) > 2:
+            safety_report["risk_level"] = "medium"
+
+        return safety_report
+
+    def check_navigation_safety(self, action: Dict) -> str:
+        """
+        Check navigation action safety
+        """
+        # Check distance constraints
+        target_pose = action["parameters"].get("position")
+        if target_pose:
+            distance = self.calculate_distance_to_robot(target_pose)
+            if distance > self.safety_constraints["max_navigation_distance"]:
+                return f"Navigation target too far: {distance:.2f}m > {self.safety_constraints['max_navigation_distance']}m"
+
+        # Check for obstacle collisions
+        path = self.calculate_navigation_path(action)
+        if self.path_has_obstacles(path):
+            return "Navigation path has obstacles"
+
+        return None
+
+    def check_manipulation_safety(self, action: Dict) -> str:
+        """
+        Check manipulation action safety
+        """
+        object_info = action["parameters"].get("object_info", {})
+        weight = object_info.get("weight", 0)
+
+        if weight > self.safety_constraints["max_manipulation_weight"]:
+            return f"Object too heavy: {weight}kg > {self.safety_constraints['max_manipulation_weight']}kg"
+
+        return None
+
+    def calculate_distance_to_robot(self, target_pose) -> float:
+        """
+        Calculate distance from robot to target pose
+        """
+        # This would use current robot pose
+        # For now, return a dummy calculation
+        return 1.0
+
+    def calculate_navigation_path(self, action: Dict):
+        """
+        Calculate navigation path (simplified)
+        """
+        # This would use path planning algorithms
+        return []
+
+    def path_has_obstacles(self, path) -> bool:
+        """
+        Check if path has obstacles
+        """
+        # This would check against costmap
+        return False
+```
+
+## Real-time Plan Adaptation
+
+### Dynamic Plan Updating
+
+```python
+class DynamicPlanUpdater:
+    def __init__(self, node):
+        self.node = node
+        self.current_plan = []
+        self.executed_steps = []
+        self.failed_steps = []
+
+    def update_plan_during_execution(self, current_state: Dict, feedback: Dict) -> List[Dict]:
+        """
+        Update plan based on execution feedback
+        """
+        if feedback.get("error"):
+            # Handle step failure
+            return self.handle_step_failure(current_state, feedback)
+        elif feedback.get("deviation"):
+            # Handle unexpected deviation
+            return self.handle_deviation(current_state, feedback)
+        else:
+            # Continue with current plan
+            return self.current_plan
+
+    def handle_step_failure(self, current_state: Dict, feedback: Dict) -> List[Dict]:
+        """
+        Handle failure of current step
+        """
+        failed_step = self.current_plan[len(self.executed_steps)]
+        self.failed_steps.append(failed_step)
+
+        # Try alternative approach
+        alternative_plan = self.generate_alternative_plan(
+            failed_step, current_state, len(self.executed_steps)
+        )
+
+        if alternative_plan:
+            # Insert alternative plan into remaining plan
+            remaining_plan = self.current_plan[len(self.executed_steps) + 1:]
+            new_plan = self.executed_steps + alternative_plan + remaining_plan
+            self.current_plan = new_plan
+            return new_plan
+        else:
+            # If no alternative, skip the failed step if possible
+            remaining_plan = self.current_plan[len(self.executed_steps) + 1:]
+            new_plan = self.executed_steps + remaining_plan
+            self.current_plan = new_plan
+            return new_plan
+
+    def generate_alternative_plan(self, failed_step: Dict, current_state: Dict, step_index: int) -> List[Dict]:
+        """
+        Generate alternative plan for failed step
+        """
+        # Use LLM to suggest alternative
+        prompt = f"""
+        Failed step: {json.dumps(failed_step)}
+        Current state: {json.dumps(current_state)}
+        Step index: {step_index}
+
+        Generate an alternative approach for the failed step.
+        Consider the current state and what has already been executed.
+        """
+
+        try:
+            response = self.node.llm_client.chat.completions.create(
+                model="gpt-4-turbo",
+                messages=[
+                    {"role": "system", "content": "Generate alternative plan steps."},
+                    {"role": "user", "content": prompt}
+                ],
+                response_format={"type": "json_object"}
+            )
+
+            result = json.loads(response.choices[0].message.content)
+            return result.get("alternative_steps", [])
+
+        except Exception as e:
+            self.node.get_logger().error(f'Alternative plan generation error: {e}')
+            return []
+
+    def handle_deviation(self, current_state: Dict, feedback: Dict) -> List[Dict]:
+        """
+        Handle unexpected deviation from plan
+        """
+        # Assess impact of deviation
+        deviation_type = feedback.get("deviation_type", "unknown")
+
+        if deviation_type == "object_not_found":
+            # Look for object in nearby locations
+            new_plan = self.search_for_object(current_state, feedback)
+        elif deviation_type == "path_blocked":
+            # Recalculate navigation path
+            new_plan = self.recalculate_path(current_state, feedback)
+        else:
+            # Continue with plan adjustment
+            new_plan = self.adjust_plan_for_deviation(current_state, feedback)
+
+        return new_plan
+
+    def search_for_object(self, current_state: Dict, feedback: Dict) -> List[Dict]:
+        """
+        Create plan to search for missing object
+        """
+        search_plan = [
+            {
+                "action": "scan_area",
+                "parameters": {
+                    "center": current_state.get("robot_pose"),
+                    "radius": 2.0
+                },
+                "description": "Search for object in nearby area"
+            }
+        ]
+
+        # Add original action after search
+        original_step_idx = len(self.executed_steps)
+        if original_step_idx < len(self.current_plan):
+            search_plan.append(self.current_plan[original_step_idx])
+
+        return search_plan
+```
+
+## Performance Optimization
+
+### Caching and Pre-computation
+
+```python
+import functools
+import hashlib
+
+class OptimizedCognitivePlanner:
+    def __init__(self, node):
+        self.node = node
+        self.plan_cache = {}
+        self.max_cache_size = 100
+
+    @functools.lru_cache(maxsize=100)
+    def cached_plan_generation(self, command_hash: str, context_hash: str) -> Dict:
+        """
+        Cache plan generation results
+        """
+        # This method would call the actual LLM planning
+        # The LRU cache decorator handles caching automatically
+        pass
+
+    def get_command_context_hash(self, command: str, context: Dict) -> str:
+        """
+        Generate hash for command and context combination
+        """
+        combined = f"{command}_{json.dumps(context, sort_keys=True)}"
+        return hashlib.md5(combined.encode()).hexdigest()
+
+    def generate_or_retrieve_plan(self, command: str, context: Dict) -> Dict:
+        """
+        Generate plan or retrieve from cache
+        """
+        cache_key = self.get_command_context_hash(command, context)
+
+        if cache_key in self.plan_cache:
+            self.node.get_logger().info('Retrieved plan from cache')
+            return self.plan_cache[cache_key]
+
+        # Generate new plan
+        plan = self.generate_cognitive_plan(command, context)
+
+        # Cache the result
+        if len(self.plan_cache) >= self.max_cache_size:
+            # Remove oldest entry
+            oldest_key = next(iter(self.plan_cache))
+            del self.plan_cache[oldest_key]
+
+        self.plan_cache[cache_key] = plan
+        return plan
+
+    def precompute_common_plans(self):
+        """
+        Precompute plans for common commands
+        """
+        common_commands = [
+            "go to kitchen",
+            "pick up the red cup",
+            "bring me water",
+            "clean the table"
+        ]
+
+        base_context = self.get_base_context()
+
+        for command in common_commands:
+            try:
+                plan = self.generate_cognitive_plan(command, base_context)
+                cache_key = self.get_command_context_hash(command, base_context)
+                self.plan_cache[cache_key] = plan
+                self.node.get_logger().info(f'Precomputed plan for: {command}')
+            except Exception as e:
+                self.node.get_logger().error(f'Precomputation error for {command}: {e}')
+```
+
+## Best Practices for LLM Cognitive Planning
+
+### Guidelines for Effective Implementation
+
+1. **Prompt Engineering**: Carefully craft prompts for consistent, reliable planning
+2. **Context Provision**: Provide sufficient environmental context to the LLM
+3. **Validation**: Always validate LLM outputs before execution
+4. **Error Handling**: Implement robust error handling and recovery
+5. **Safety**: Include safety constraints and validation
+6. **Caching**: Cache common plans for efficiency
+7. **Monitoring**: Monitor plan quality and success rates
+
+## Summary
+
+LLM cognitive planning bridges the gap between natural language commands and executable robotic actions. By decomposing high-level goals into specific, contextualized action sequences, LLMs enable robots to understand and execute complex tasks. Proper implementation requires careful attention to context awareness, safety validation, and real-time adaptation to environmental changes.

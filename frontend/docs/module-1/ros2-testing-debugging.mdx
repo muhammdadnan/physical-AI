@@ -1,0 +1,101 @@
+---
+sidebar_position: 6
+---
+
+# ROS 2 Testing and Debugging
+
+## Learning Objectives
+- Master ROS 2 testing frameworks and methodologies
+- Learn debugging techniques for ROS 2 applications
+- Understand logging and monitoring tools
+- Implement effective debugging workflows
+
+## Table of Contents
+1. [Testing Frameworks](#testing-frameworks)
+2. [Unit Testing](#unit-testing)
+3. [Integration Testing](#integration-testing)
+4. [Debugging Tools](#debugging-tools)
+5. [Performance Profiling](#performance-profiling)
+
+## Testing Frameworks
+
+ROS 2 provides several testing frameworks to ensure code quality and reliability:
+
+### GTest for C++
+ROS 2 uses Google Test (GTest) for C++ unit testing:
+
+```cpp
+#include <gtest/gtest.h>
+#include "my_robot/robot_controller.hpp"
+
+TEST(RobotControllerTest, InitializationTest) {
+    RobotController controller;
+    EXPECT_TRUE(controller.isInitialized());
+}
+
+TEST(RobotControllerTest, MovementTest) {
+    RobotController controller;
+    auto result = controller.moveTo(1.0, 2.0, 0.0);
+    EXPECT_TRUE(result.success);
+}
+```
+
+### PyTest for Python
+For Python nodes, pytest is the preferred testing framework:
+
+```python
+import pytest
+from my_robot.robot_controller import RobotController
+
+def test_initialization():
+    controller = RobotController()
+    assert controller.is_initialized == True
+
+def test_movement():
+    controller = RobotController()
+    result = controller.move_to(1.0, 2.0, 0.0)
+    assert result.success == True
+```
+
+## Debugging Tools
+
+### ROS 2 Doctor
+The `ros2 doctor` tool helps diagnose common ROS 2 configuration issues:
+
+```bash
+ros2 doctor
+ros2 doctor --report
+```
+
+### ROS 2 Bag for Data Recording
+Record and replay ROS 2 messages for debugging:
+
+```bash
+# Record all topics
+ros2 bag record -a
+
+# Record specific topics
+ros2 bag record /topic1 /topic2
+
+# Play back recorded data
+ros2 bag play my_bag_folder
+```
+
+## Performance Profiling
+
+### Using tracetools
+ROS 2 provides tracing capabilities for performance analysis:
+
+```cpp
+#include "tracetools/tracetools.h"
+
+void my_function() {
+    TRACEPOINT(ros2_function_enter, "namespace", "function_name");
+    // Function implementation
+    TRACEPOINT(ros2_function_exit, "namespace", "function_name");
+}
+```
+
+## Summary
+
+This chapter covered essential testing and debugging techniques for ROS 2 applications, enabling developers to build more reliable and maintainable robotic systems.

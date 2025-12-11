@@ -1,0 +1,678 @@
+---
+title: Photorealistic Simulation & Synthetic Data
+---
+
+# Photorealistic Simulation & Synthetic Data
+
+## Introduction to Photorealistic Simulation
+
+Photorealistic simulation in Isaac Sim leverages NVIDIA's advanced rendering capabilities to create highly realistic environments for robotics training. This technology enables the generation of synthetic data that closely mimics real-world conditions, making it invaluable for training AI models without requiring physical data collection.
+
+## Rendering Modes in Isaac Sim
+
+### USD Render Modes
+
+Isaac Sim supports multiple rendering modes for different use cases:
+
+#### 1. Kit Renderer (Default)
+- Fast, real-time rendering
+- Good for interactive simulation
+- Suitable for most robotics applications
+
+#### 2. Path Tracing
+- Physically accurate lighting simulation
+- High-quality, photorealistic output
+- Slower but more realistic than Kit renderer
+
+#### 3. RTX Renderer
+- Hardware-accelerated ray tracing
+- Balance of quality and performance
+- Requires RTX-capable GPU
+
+### Setting Render Modes
+
+```python
+import omni
+from omni import kit
+
+# Switch to path tracing renderer
+omni.kit.app.get_app().get_framework().get_renderer().set_renderer("PathTraced")
+
+# Or use RTX renderer if available
+omni.kit.app.get_app().get_framework().get_renderer().set_renderer("RTX")
+```
+
+## Creating Synthetic Datasets
+
+### RGB Image Generation
+
+```python
+import omni
+from omni.isaac.core.utils.viewports import set_camera_view
+from omni.isaac.sensor import Camera
+import numpy as np
+import cv2
+
+def setup_synthetic_camera(world, position, target):
+    """
+    Set up a camera for synthetic RGB data generation
+    """
+    # Create camera prim
+    camera_prim_path = "/World/SyntheticCamera"
+
+    # Add camera to the scene
+    camera = Camera(
+        prim_path=camera_prim_path,
+        frequency=30,  # 30 Hz
+        resolution=(640, 480)
+    )
+
+    # Position the camera
+    camera.set_world_pose(position, target)
+
+    return camera
+
+def capture_synthetic_images(camera, output_dir, num_images=100):
+    """
+    Capture synthetic RGB images for dataset generation
+    """
+    import os
+
+    # Create output directory
+    os.makedirs(output_dir, exist_ok=True)
+
+    for i in range(num_images):
+        # Step the world to update camera data
+        world.step(render=True)
+
+        # Get RGB data
+        rgb_data = camera.get_rgb()
+
+        if rgb_data is not None:
+            # Convert to OpenCV format
+            rgb_image = cv2.cvtColor(rgb_data, cv2.COLOR_RGBA2BGR)
+
+            # Save image
+            image_path = f"{output_dir}/rgb_{i:06d}.png"
+            cv2.imwrite(image_path, rgb_image)
+
+            print(f"Saved RGB image: {image_path}")
+```
+
+### Depth Map Generation
+
+```python
+def setup_depth_camera(world, position, target):
+    """
+    Set up a depth camera for synthetic depth data generation
+    """
+    depth_camera = Camera(
+        prim_path="/World/DepthCamera",
+        frequency=30,
+        resolution=(640, 480),
+        sensor_type="depth"
+    )
+
+    depth_camera.set_world_pose(position, target)
+    return depth_camera
+
+def capture_depth_maps(depth_camera, output_dir, num_images=100):
+    """
+    Capture synthetic depth maps for dataset generation
+    """
+    import os
+    import struct
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    for i in range(num_images):
+        world.step(render=True)
+
+        # Get depth data
+        depth_data = depth_camera.get_depth()
+
+        if depth_data is not None:
+            # Normalize depth for PNG storage (0-65535 range)
+            normalized_depth = np.clip(depth_data / 10.0 * 65535, 0, 65535).astype(np.uint16)
+
+            # Save as PNG
+            depth_path = f"{output_dir}/depth_{i:06d}.png"
+            cv2.imwrite(depth_path, normalized_depth)
+
+            print(f"Saved depth image: {depth_path}")
+```
+
+### Semantic Segmentation Generation
+
+```python
+def setup_segmentation_camera(world, position, target):
+    """
+    Set up a semantic segmentation camera
+    """
+    segmentation_camera = Camera(
+        prim_path="/World/SegmentationCamera",
+        frequency=30,
+        resolution=(640, 480),
+        sensor_type="semantic_segmentation"
+    )
+
+    segmentation_camera.set_world_pose(position, target)
+    return segmentation_camera
+
+def capture_segmentation_maps(segmentation_camera, output_dir, num_images=100):
+    """
+    Capture synthetic segmentation maps
+    """
+    import os
+
+    os.makedirs(output_dir, exist_ok=True)
+
+    for i in range(num_images):
+        world.step(render=True)
+
+        # Get segmentation data
+        seg_data = segmentation_camera.get_semantic_segmentation()
+
+        if seg_data is not None:
+            # Convert segmentation IDs to color map
+            # This is a simplified example - in practice, you'd map IDs to specific colors
+            seg_colored = apply_segmentation_colors(seg_data)
+
+            seg_path = f"{output_dir}/segmentation_{i:06d}.png"
+            cv2.imwrite(seg_path, seg_colored)
+
+            print(f"Saved segmentation image: {seg_path}")
+
+def apply_segmentation_colors(seg_data):
+    """
+    Apply color mapping to segmentation IDs
+    """
+    # Create a color palette for different object classes
+    color_palette = np.random.randint(0, 255, size=(256, 3), dtype=np.uint8)
+
+    # Map segmentation IDs to colors
+    colored_seg = color_palette[seg_data.astype(np.uint8)]
+    return colored_seg
+```
+
+## Advanced Synthetic Data Techniques
+
+### Domain Randomization
+
+Domain randomization is a technique to increase the robustness of models trained on synthetic data:
+
+```python
+import random
+from pxr import UsdShade, Gf
+
+def apply_domain_randomization(world, objects):
+    """
+    Apply randomization to object properties for domain randomization
+    """
+    for obj in objects:
+        # Randomize material properties
+        randomize_material(obj)
+
+        # Randomize lighting
+        randomize_lighting()
+
+        # Randomize camera parameters
+        randomize_camera_params()
+
+def randomize_material(obj):
+    """
+    Randomize material properties of an object
+    """
+    # Randomize color
+    base_color = Gf.Vec3f(
+        random.uniform(0.1, 1.0),
+        random.uniform(0.1, 1.0),
+        random.uniform(0.1, 1.0)
+    )
+
+    # Randomize roughness
+    roughness = random.uniform(0.1, 0.9)
+
+    # Randomize metallic
+    metallic = random.uniform(0.0, 0.5)
+
+    # Apply changes to material
+    material_path = obj.GetPath().AppendPath("Material")
+    material = UsdShade.Material.Define(world.stage, material_path)
+
+    # Set material properties
+    pbr_shader = UsdShade.Shader.Define(world.stage, material_path.AppendPath("PBRShader"))
+    pbr_shader.CreateIdAttr("OmniPBR")
+
+    # Set properties
+    pbr_shader.CreateInput("diffuse_color", Sdf.ValueTypeNames.Color3f).Set(base_color)
+    pbr_shader.CreateInput("roughness", Sdf.ValueTypeNames.Float).Set(roughness)
+    pbr_shader.CreateInput("metallic", Sdf.ValueTypeNames.Float).Set(metallic)
+
+def randomize_lighting():
+    """
+    Randomize lighting conditions
+    """
+    # Get all lights in the scene
+    lights = world.scene.get_objects_by_type("DistantLight")
+
+    for light in lights:
+        # Randomize intensity
+        intensity = random.uniform(500, 1500)
+        light.intensity = intensity
+
+        # Randomize color temperature
+        color_temp = random.uniform(4000, 7000)  # Kelvin
+        # Convert to RGB approximation
+        rgb_color = kelvin_to_rgb(color_temp)
+        light.color = rgb_color
+
+def kelvin_to_rgb(kelvin):
+    """
+    Convert Kelvin temperature to RGB color
+    """
+    temp = kelvin / 100
+    red, green, blue = 0, 0, 0
+
+    # Red calculation
+    if temp <= 66:
+        red = 255
+    else:
+        red = temp - 60
+        red = 329.698727446 * (red ** -0.1332047592)
+        red = max(0, min(255, red))
+
+    # Green calculation
+    if temp <= 66:
+        green = temp
+        green = 99.4708025861 * math.log(green) - 161.1195681661
+    else:
+        green = temp - 60
+        green = 288.1221695283 * (green ** -0.0755148492)
+    green = max(0, min(255, green))
+
+    # Blue calculation
+    if temp >= 66:
+        blue = 255
+    elif temp <= 19:
+        blue = 0
+    else:
+        blue = temp - 10
+        blue = 138.5177312231 * math.log(blue) - 305.0447927307
+        blue = max(0, min(255, blue))
+
+    return (red/255.0, green/255.0, blue/255.0)
+```
+
+### Synthetic Data Pipeline
+
+```python
+import json
+import yaml
+from datetime import datetime
+
+class SyntheticDataPipeline:
+    def __init__(self, output_dir="synthetic_data", scene_configs=None):
+        self.output_dir = output_dir
+        self.scene_configs = scene_configs or []
+        self.current_scene_index = 0
+
+        # Create output directories
+        self.setup_directories()
+
+    def setup_directories(self):
+        """Create necessary directories for synthetic data"""
+        import os
+
+        os.makedirs(f"{self.output_dir}/rgb", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/depth", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/segmentation", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/metadata", exist_ok=True)
+        os.makedirs(f"{self.output_dir}/config", exist_ok=True)
+
+    def generate_scene_variations(self):
+        """Generate multiple scene variations for data diversity"""
+        for scene_config in self.scene_configs:
+            self.setup_scene(scene_config)
+
+            # Generate multiple viewpoints
+            for viewpoint in self.generate_viewpoints():
+                self.capture_data(viewpoint)
+
+            # Randomize scene for next iteration
+            self.randomize_scene()
+
+    def setup_scene(self, config):
+        """Set up scene based on configuration"""
+        # Load scene from USD file or create programmatically
+        if 'usd_file' in config:
+            # Load existing USD scene
+            pass
+        else:
+            # Create scene programmatically
+            self.create_programmatic_scene(config)
+
+    def create_programmatic_scene(self, config):
+        """Create scene programmatically based on config"""
+        # Create ground plane
+        # Add objects based on config
+        # Set up lighting
+        # Position cameras
+        pass
+
+    def generate_viewpoints(self):
+        """Generate multiple camera viewpoints"""
+        viewpoints = []
+
+        # Generate viewpoints around the scene
+        for angle in range(0, 360, 30):  # Every 30 degrees
+            for height in [0.5, 1.0, 1.5]:  # Different heights
+                x = 3 * math.cos(math.radians(angle))
+                y = 3 * math.sin(math.radians(angle))
+                z = height
+
+                viewpoints.append({
+                    'position': (x, y, z),
+                    'target': (0, 0, 0.5)  # Look at center
+                })
+
+        return viewpoints
+
+    def capture_data(self, viewpoint):
+        """Capture RGB, depth, and segmentation data from viewpoint"""
+        # Position cameras
+        set_camera_view(
+            camera_prim="/World/RGBCamera",
+            eye=viewpoint['position'],
+            target=viewpoint['target']
+        )
+
+        # Capture RGB
+        rgb_data = self.capture_rgb()
+
+        # Capture depth
+        depth_data = self.capture_depth()
+
+        # Capture segmentation
+        seg_data = self.capture_segmentation()
+
+        # Save data
+        self.save_data(rgb_data, depth_data, seg_data, viewpoint)
+
+    def save_data(self, rgb_data, depth_data, seg_data, viewpoint):
+        """Save captured data with metadata"""
+        import os
+        import cv2
+        import numpy as np
+
+        # Get current timestamp
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
+
+        # Save RGB
+        rgb_path = f"{self.output_dir}/rgb/rgb_{timestamp}.png"
+        cv2.imwrite(rgb_path, cv2.cvtColor(rgb_data, cv2.COLOR_RGBA2BGR))
+
+        # Save depth
+        depth_normalized = np.clip(depth_data / 10.0 * 65535, 0, 65535).astype(np.uint16)
+        depth_path = f"{self.output_dir}/depth/depth_{timestamp}.png"
+        cv2.imwrite(depth_path, depth_normalized)
+
+        # Save segmentation
+        seg_path = f"{self.output_dir}/segmentation/seg_{timestamp}.png"
+        cv2.imwrite(seg_path, seg_data)
+
+        # Save metadata
+        metadata = {
+            'timestamp': timestamp,
+            'viewpoint': viewpoint,
+            'rgb_path': rgb_path,
+            'depth_path': depth_path,
+            'seg_path': seg_path,
+            'scene_config': self.scene_configs[self.current_scene_index]
+        }
+
+        meta_path = f"{self.output_dir}/metadata/meta_{timestamp}.json"
+        with open(meta_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+
+    def export_dataset_config(self):
+        """Export dataset configuration for reproducibility"""
+        config = {
+            'dataset_name': 'Isaac_Sim_Synthetic_Dataset',
+            'creation_date': datetime.now().isoformat(),
+            'scene_configurations': self.scene_configs,
+            'camera_parameters': {
+                'resolution': [640, 480],
+                'frequency': 30,
+                'fov': 60
+            },
+            'domain_randomization': {
+                'material_randomization': True,
+                'lighting_randomization': True,
+                'object_placement_randomization': True
+            }
+        }
+
+        config_path = f"{self.output_dir}/config/dataset_config.json"
+        with open(config_path, 'w') as f:
+            json.dump(config, f, indent=2)
+
+def run_synthetic_data_generation():
+    """
+    Main function to run synthetic data generation pipeline
+    """
+    # Define scene configurations
+    scene_configs = [
+        {
+            'name': 'indoor_office',
+            'objects': ['desk', 'chair', 'monitor'],
+            'lighting': 'fluorescent',
+            'floor_material': 'tile'
+        },
+        {
+            'name': 'outdoor_garden',
+            'objects': ['tree', 'bush', 'bench'],
+            'lighting': 'natural_sun',
+            'floor_material': 'grass'
+        }
+    ]
+
+    # Create pipeline
+    pipeline = SyntheticDataPipeline(
+        output_dir="isaac_sim_synthetic_dataset",
+        scene_configs=scene_configs
+    )
+
+    # Generate data
+    pipeline.generate_scene_variations()
+
+    # Export configuration
+    pipeline.export_dataset_config()
+
+    print("Synthetic data generation completed!")
+```
+
+## Exporting Data for AI Training
+
+### Data Format Standards
+
+```python
+def export_for_training_format(data_dir, target_format="tensorflow"):
+    """
+    Export synthetic data in formats suitable for AI training
+    """
+    import os
+    import shutil
+
+    if target_format == "tensorflow":
+        # Create TensorFlow dataset structure
+        tf_dir = os.path.join(data_dir, "tensorflow_format")
+        os.makedirs(os.path.join(tf_dir, "train", "rgb"), exist_ok=True)
+        os.makedirs(os.path.join(tf_dir, "train", "depth"), exist_ok=True)
+        os.makedirs(os.path.join(tf_dir, "train", "labels"), exist_ok=True)
+
+        # Copy and organize files
+        # This would involve more complex logic based on your specific needs
+
+    elif target_format == "pytorch":
+        # Create PyTorch dataset structure
+        pt_dir = os.path.join(data_dir, "pytorch_format")
+        os.makedirs(os.path.join(pt_dir, "images"), exist_ok=True)
+        os.makedirs(os.path.join(pt_dir, "labels"), exist_ok=True)
+
+    print(f"Data exported in {target_format} format")
+
+def create_training_split(data_dir, train_ratio=0.7, val_ratio=0.2, test_ratio=0.1):
+    """
+    Create train/validation/test splits for the dataset
+    """
+    import os
+    import random
+    from shutil import copy2
+
+    # Get all data files
+    rgb_files = [f for f in os.listdir(f"{data_dir}/rgb") if f.endswith('.png')]
+
+    # Shuffle files
+    random.shuffle(rgb_files)
+
+    # Calculate split sizes
+    total_files = len(rgb_files)
+    train_end = int(total_files * train_ratio)
+    val_end = train_end + int(total_files * val_ratio)
+
+    # Create splits
+    splits = {
+        'train': rgb_files[:train_end],
+        'val': rgb_files[train_end:val_end],
+        'test': rgb_files[val_end:]
+    }
+
+    # Create split directories
+    for split_name in splits:
+        os.makedirs(f"{data_dir}/{split_name}/rgb", exist_ok=True)
+        os.makedirs(f"{data_dir}/{split_name}/depth", exist_ok=True)
+        os.makedirs(f"{data_dir}/{split_name}/segmentation", exist_ok=True)
+
+    # Copy files to appropriate splits
+    for split_name, files in splits.items():
+        for file in files:
+            # Copy RGB
+            src_rgb = f"{data_dir}/rgb/{file}"
+            dst_rgb = f"{data_dir}/{split_name}/rgb/{file}"
+            copy2(src_rgb, dst_rgb)
+
+            # Copy corresponding depth and segmentation
+            base_name = file.replace('.png', '')
+            for data_type in ['depth', 'segmentation']:
+                src_data = f"{data_dir}/{data_type}/{base_name}.png"
+                dst_data = f"{data_dir}/{split_name}/{data_type}/{base_name}.png"
+                if os.path.exists(src_data):
+                    copy2(src_data, dst_data)
+
+    print(f"Dataset split: {len(splits['train'])} train, {len(splits['val'])} val, {len(splits['test'])} test")
+```
+
+## Quality Assurance for Synthetic Data
+
+### Data Validation
+
+```python
+def validate_synthetic_data(data_dir):
+    """
+    Validate the quality and consistency of synthetic data
+    """
+    import os
+    import cv2
+    import numpy as np
+
+    validation_results = {
+        'total_images': 0,
+        'valid_images': 0,
+        'average_brightness': 0,
+        'brightness_range_ok': True,
+        'resolution_consistent': True,
+        'no_corrupted_files': True
+    }
+
+    rgb_dir = f"{data_dir}/rgb"
+    rgb_files = [f for f in os.listdir(rgb_dir) if f.endswith('.png')]
+
+    total_brightness = 0
+
+    for file in rgb_files:
+        validation_results['total_images'] += 1
+
+        # Load image
+        img_path = os.path.join(rgb_dir, file)
+        try:
+            img = cv2.imread(img_path)
+            if img is None:
+                print(f"Corrupted image: {file}")
+                validation_results['no_corrupted_files'] = False
+                continue
+
+            # Check resolution consistency
+            if img.shape != (480, 640, 3):  # Assuming 640x480 RGB
+                validation_results['resolution_consistent'] = False
+
+            # Calculate brightness
+            gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+            brightness = np.mean(gray)
+            total_brightness += brightness
+
+            # Check if brightness is in reasonable range
+            if brightness < 10 or brightness > 245:  # Too dark or too bright
+                print(f"Image brightness out of range: {file}, brightness={brightness}")
+
+            validation_results['valid_images'] += 1
+
+        except Exception as e:
+            print(f"Error processing {file}: {e}")
+            validation_results['no_corrupted_files'] = False
+
+    if validation_results['valid_images'] > 0:
+        validation_results['average_brightness'] = total_brightness / validation_results['valid_images']
+
+    return validation_results
+
+def generate_data_report(validation_results, output_path="synthetic_data_report.md"):
+    """
+    Generate a report about the synthetic data quality
+    """
+    report = f"""
+# Synthetic Data Quality Report
+
+## Dataset Overview
+- Total images: {validation_results['total_images']}
+- Valid images: {validation_results['valid_images']}
+- Validation success rate: {validation_results['valid_images']/validation_results['total_images']*100:.1f}%
+
+## Quality Metrics
+- Average brightness: {validation_results['average_brightness']:.2f}
+- Resolution consistent: {validation_results['resolution_consistent']}
+- No corrupted files: {validation_results['no_corrupted_files']}
+
+## Recommendations
+- Data quality is {'acceptable' if validation_results['valid_images']/validation_results['total_images'] > 0.95 else 'needs review'}
+- Brightness levels are {'appropriate' if 50 < validation_results['average_brightness'] < 200 else 'potentially problematic'}
+    """
+
+    with open(output_path, 'w') as f:
+        f.write(report)
+
+    print(f"Data report saved to {output_path}")
+```
+
+## Best Practices for Synthetic Data Generation
+
+1. **Diversity**: Ensure scenes include various lighting conditions, object arrangements, and environments
+2. **Realism**: Use physically-based materials and lighting for realistic appearance
+3. **Annotation Quality**: Maintain consistent and accurate annotations across all data
+4. **Domain Randomization**: Apply randomization to improve model generalization
+5. **Validation**: Regularly validate data quality and consistency
+6. **Documentation**: Keep detailed records of generation parameters for reproducibility
+
+## Summary
+
+Photorealistic simulation in Isaac Sim enables the generation of high-quality synthetic datasets that can significantly accelerate AI model development. By leveraging advanced rendering techniques, domain randomization, and automated data pipelines, you can create diverse and robust training datasets for robotics applications. Proper validation and quality assurance ensure that the synthetic data will be effective for training real-world AI systems.

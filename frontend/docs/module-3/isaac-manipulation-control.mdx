@@ -1,0 +1,185 @@
+---
+sidebar_position: 6
+---
+
+# Manipulation and Control with Isaac
+
+## Learning Objectives
+- Understand Isaac ROS manipulation frameworks
+- Learn robotic arm control techniques
+- Master trajectory planning and execution
+- Implement force control and compliance
+
+## Table of Contents
+1. [Manipulation Frameworks](#manipulation-frameworks)
+2. [Robotic Arm Control](#robotic-arm-control)
+3. [Trajectory Planning](#trajectory-planning)
+4. [Force Control](#force-control)
+5. [Grasping and Manipulation](#grasping-manipulation)
+
+## Manipulation Frameworks
+
+### MoveIt! Integration
+Isaac ROS provides seamless integration with MoveIt! for motion planning:
+
+```cpp
+// Isaac ROS MoveIt integration
+#include "isaac_ros_moveit/moveit_interface.hpp"
+
+class ManipulationController
+{
+public:
+    ManipulationController()
+    {
+        moveit_interface_ = std::make_unique<MoveItInterface>();
+        moveit_interface_->initializeRobot("my_robot", "panda_arm");
+    }
+
+    bool moveToPose(const geometry_msgs::msg::Pose& target_pose)
+    {
+        // Plan motion to target pose
+        auto plan = moveit_interface_->planToPose(target_pose);
+
+        if (plan.success)
+        {
+            // Execute the planned trajectory
+            return moveit_interface_->executeTrajectory(plan.trajectory);
+        }
+
+        return false;
+    }
+
+private:
+    std::unique_ptr<MoveItInterface> moveit_interface_;
+};
+```
+
+### Kinematic Solvers
+- GPU-accelerated inverse kinematics
+- Redundant manipulator solutions
+- Collision-aware kinematics
+
+### Grasp Planning
+- 3D point cloud-based grasp generation
+- Physics simulation for grasp evaluation
+- Multi-fingered hand control
+
+## Robotic Arm Control
+
+### Joint Space Control
+```python
+# Isaac ROS joint control
+import rclpy
+from control_msgs.msg import JointTrajectoryControllerState
+from trajectory_msgs.msg import JointTrajectory, JointTrajectoryPoint
+
+class JointController:
+    def __init__(self):
+        self.joint_names = ['joint1', 'joint2', 'joint3', 'joint4', 'joint5', 'joint6']
+        self.publisher = self.create_publisher(JointTrajectory, '/joint_trajectory', 10)
+
+    def move_to_joint_positions(self, positions, duration=5.0):
+        trajectory = JointTrajectory()
+        trajectory.joint_names = self.joint_names
+
+        point = JointTrajectoryPoint()
+        point.positions = positions
+        point.time_from_start.sec = int(duration)
+        point.time_from_start.nanosec = int((duration - int(duration)) * 1e9)
+
+        trajectory.points = [point]
+        self.publisher.publish(trajectory)
+```
+
+### Cartesian Space Control
+- End-effector position and orientation control
+- Jacobian-based control algorithms
+- Cartesian impedance control
+
+### Control Modes
+- Position control for precise positioning
+- Velocity control for smooth motion
+- Torque control for force-sensitive tasks
+
+## Trajectory Planning
+
+### Path Planning Algorithms
+- RRT* for optimal path planning
+- CHOMP for smooth trajectory optimization
+- STOMP for stochastic trajectory optimization
+
+### Collision Checking
+```cpp
+// GPU-accelerated collision checking
+class CollisionChecker
+{
+public:
+    bool checkCollision(const std::vector<double>& joint_positions)
+    {
+        // Upload robot state to GPU
+        uploadRobotState(joint_positions);
+
+        // Perform collision detection on GPU
+        return gpu_collision_detection();
+    }
+
+    std::vector<std::vector<double>> planCollisionFreePath(
+        const std::vector<double>& start,
+        const std::vector<double>& goal)
+    {
+        // Use GPU-accelerated planning
+        return gpu_rrt_star_planner(start, goal);
+    }
+};
+```
+
+### Trajectory Optimization
+- Time-optimal trajectory generation
+- Smoothness optimization
+- Dynamic constraint satisfaction
+
+## Force Control
+
+### Impedance Control
+- Variable stiffness control
+- Admittance control for compliant motion
+- Hybrid position/force control
+
+### Force Sensing Integration
+- F/T sensor data processing
+- Force feedback control loops
+- Safety limits and monitoring
+
+```python
+# Force control example
+class ForceController:
+    def __init__(self):
+        self.force_threshold = 10.0  # Newtons
+        self.compliance_matrix = np.eye(6) * 0.001  # Compliance in m/N
+
+    def force_control_step(self, measured_force, desired_force):
+        force_error = desired_force - measured_force
+        displacement = self.compliance_matrix @ force_error
+        return displacement
+```
+
+## Grasping and Manipulation
+
+### Grasp Generation
+- 3D object recognition and pose estimation
+- Grasp candidate generation
+- Grasp quality evaluation
+
+### Multi-Fingered Hands
+- Underactuated hand control
+- Grasp force distribution
+- Tactile feedback integration
+
+### Manipulation Strategies
+- Pre-grasp positioning
+- Grasp execution and verification
+- Post-grasp manipulation
+
+## Summary
+
+This chapter covered manipulation and control systems using NVIDIA Isaac, focusing on integration with MoveIt!, robotic arm control, trajectory planning, and force control techniques.

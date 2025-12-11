@@ -1,0 +1,801 @@
+---
+title: Data Export for AI Training
+---
+
+# Data Export for AI Training
+
+## Introduction to Simulation Data for AI
+
+Simulation environments like Gazebo and Unity are powerful tools for generating training data for AI systems. The synthetic data produced in these environments can be used to train machine learning models for various robotics tasks, including perception, navigation, and manipulation.
+
+## Types of Data for AI Training
+
+### Sensor Data
+- LiDAR point clouds
+- Depth images
+- RGB images
+- IMU readings
+- Joint positions and velocities
+
+### Ground Truth Data
+- Object poses and positions
+- Robot states
+- Collision information
+- Environmental properties
+
+### Action/Label Data
+- Optimal actions for given states
+- Navigation paths
+- Manipulation sequences
+
+## Exporting Data from Gazebo
+
+### Python-based Data Export
+
+```python
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import LaserScan, Image, Imu
+from nav_msgs.msg import Odometry
+from geometry_msgs.msg import PoseStamped
+from cv_bridge import CvBridge
+import numpy as np
+import json
+import os
+import cv2
+from datetime import datetime
+
+class DataExporter(Node):
+    def __init__(self, output_dir="simulation_data"):
+        super().__init__('data_exporter')
+        self.output_dir = output_dir
+        self.bridge = CvBridge()
+
+        # Create output directories
+        self.create_directories()
+
+        # Data buffers
+        self.data_buffer = []
+        self.buffer_size = 100
+        self.sample_count = 0
+
+        # Subscribers for different sensor types
+        self.lidar_sub = self.create_subscription(
+            LaserScan, '/scan', self.lidar_callback, 10)
+        self.rgb_sub = self.create_subscription(
+            Image, '/camera/rgb/image_raw', self.rgb_callback, 10)
+        self.depth_sub = self.create_subscription(
+            Image, '/camera/depth/image_raw', self.depth_callback, 10)
+        self.imu_sub = self.create_subscription(
+            Imu, '/imu/data', self.imu_callback, 10)
+        self.odom_sub = self.create_subscription(
+            Odometry, '/odom', self.odom_callback, 10)
+
+        # Timer for periodic export
+        self.timer = self.create_timer(1.0, self.export_buffer)
+
+    def create_directories(self):
+        """Create necessary directories for data export"""
+        os.makedirs(os.path.join(self.output_dir, "lidar"), exist_ok=True)
+        os.makedirs(os.path.join(self.output_dir, "images"), exist_ok=True)
+        os.makedirs(os.path.join(self.output_dir, "depth"), exist_ok=True)
+        os.makedirs(os.path.join(self.output_dir, "imu"), exist_ok=True)
+        os.makedirs(os.path.join(self.output_dir, "metadata"), exist_ok=True)
+
+    def lidar_callback(self, msg):
+        """Process LiDAR data"""
+        lidar_data = {
+            'timestamp': self.get_clock().now().nanoseconds / 1e9,
+            'ranges': list(msg.ranges),
+            'intensities': list(msg.intensities),
+            'angle_min': msg.angle_min,
+            'angle_max': msg.angle_max,
+            'angle_increment': msg.angle_increment,
+            'time_increment': msg.time_increment,
+            'scan_time': msg.scan_time,
+            'range_min': msg.range_min,
+            'range_max': msg.range_max
+        }
+
+        self.add_to_buffer('lidar', lidar_data)
+
+    def rgb_callback(self, msg):
+        """Process RGB image data"""
+        try:
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            timestamp = self.get_clock().now().nanoseconds / 1e9
+
+            # Save image
+            image_filename = f"rgb_{self.sample_count:06d}.png"
+            image_path = os.path.join(self.output_dir, "images", image_filename)
+            cv2.imwrite(image_path, cv_image)
+
+            image_data = {
+                'timestamp': timestamp,
+                'filename': image_filename,
+                'width': msg.width,
+                'height': msg.height,
+                'encoding': msg.encoding
+            }
+
+            self.add_to_buffer('rgb', image_data)
+        except Exception as e:
+            self.get_logger().error(f'Error processing RGB image: {e}')
+
+    def depth_callback(self, msg):
+        """Process depth image data"""
+        try:
+            cv_depth = self.bridge.imgmsg_to_cv2(msg, "32FC1")
+            timestamp = self.get_clock().now().nanoseconds / 1e9
+
+            # Save depth image (convert to 16-bit for PNG)
+            scaled_depth = np.clip(cv_depth / 10.0 * 65535, 0, 65535).astype(np.uint16)
+            depth_filename = f"depth_{self.sample_count:06d}.png"
+            depth_path = os.path.join(self.output_dir, "depth", depth_filename)
+            cv2.imwrite(depth_path, scaled_depth)
+
+            depth_data = {
+                'timestamp': timestamp,
+                'filename': depth_filename,
+                'width': msg.width,
+                'height': msg.height,
+                'encoding': msg.encoding
+            }
+
+            self.add_to_buffer('depth', depth_data)
+        except Exception as e:
+            self.get_logger().error(f'Error processing depth image: {e}')
+
+    def imu_callback(self, msg):
+        """Process IMU data"""
+        imu_data = {
+            'timestamp': self.get_clock().now().nanoseconds / 1e9,
+            'orientation': {
+                'x': msg.orientation.x,
+                'y': msg.orientation.y,
+                'z': msg.orientation.z,
+                'w': msg.orientation.w
+            },
+            'angular_velocity': {
+                'x': msg.angular_velocity.x,
+                'y': msg.angular_velocity.y,
+                'z': msg.angular_velocity.z
+            },
+            'linear_acceleration': {
+                'x': msg.linear_acceleration.x,
+                'y': msg.linear_acceleration.y,
+                'z': msg.linear_acceleration.z
+            }
+        }
+
+        self.add_to_buffer('imu', imu_data)
+
+    def odom_callback(self, msg):
+        """Process odometry data"""
+        odom_data = {
+            'timestamp': self.get_clock().now().nanoseconds / 1e9,
+            'position': {
+                'x': msg.pose.pose.position.x,
+                'y': msg.pose.pose.position.y,
+                'z': msg.pose.pose.position.z
+            },
+            'orientation': {
+                'x': msg.pose.pose.orientation.x,
+                'y': msg.pose.pose.orientation.y,
+                'z': msg.pose.pose.orientation.z,
+                'w': msg.pose.pose.orientation.w
+            },
+            'linear_velocity': {
+                'x': msg.twist.twist.linear.x,
+                'y': msg.twist.twist.linear.y,
+                'z': msg.twist.twist.linear.z
+            },
+            'angular_velocity': {
+                'x': msg.twist.twist.angular.x,
+                'y': msg.twist.twist.angular.y,
+                'z': msg.twist.twist.angular.z
+            }
+        }
+
+        self.add_to_buffer('odom', odom_data)
+
+    def add_to_buffer(self, sensor_type, data):
+        """Add data to buffer with timestamp"""
+        entry = {
+            'sensor_type': sensor_type,
+            'data': data,
+            'sample_id': self.sample_count
+        }
+
+        self.data_buffer.append(entry)
+        self.sample_count += 1
+
+    def export_buffer(self):
+        """Export buffered data to files"""
+        if len(self.data_buffer) > 0:
+            # Create metadata entry
+            metadata = {
+                'export_timestamp': datetime.now().isoformat(),
+                'buffer_size': len(self.data_buffer),
+                'sample_range': [self.sample_count - len(self.data_buffer), self.sample_count - 1]
+            }
+
+            # Save metadata
+            meta_filename = f"metadata_{self.sample_count:06d}.json"
+            meta_path = os.path.join(self.output_dir, "metadata", meta_filename)
+            with open(meta_path, 'w') as f:
+                json.dump(metadata, f, indent=2)
+
+            # Clear buffer
+            self.data_buffer.clear()
+
+            self.get_logger().info(f'Exported {metadata["buffer_size"]} samples, total: {self.sample_count}')
+
+def main(args=None):
+    rclpy.init(args=args)
+
+    # Create exporter with output directory
+    exporter = DataExporter(output_dir="simulation_training_data")
+
+    try:
+        rclpy.spin(exporter)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        exporter.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Unity Data Export Pipeline
+
+### Unity Data Export Script
+
+```csharp
+using UnityEngine;
+using System.Collections.Generic;
+using System.IO;
+using System;
+
+public class UnityDataExporter : MonoBehaviour
+{
+    [Header("Export Settings")]
+    public string exportDirectory = "simulation_data";
+    public bool exportImages = true;
+    public bool exportDepth = true;
+    public bool exportPointClouds = true;
+    public int exportFrequency = 30; // Export every N frames
+
+    [Header("Cameras")]
+    public Camera rgbCamera;
+    public Camera depthCamera;
+
+    private int frameCount = 0;
+    private int sampleCount = 0;
+    private string sessionDirectory;
+
+    [System.Serializable]
+    public class SensorData
+    {
+        public string timestamp;
+        public string sampleId;
+        public TransformData robotTransform;
+        public List<PointCloudPoint> pointCloud;
+        public string rgbImagePath;
+        public string depthImagePath;
+    }
+
+    [System.Serializable]
+    public class TransformData
+    {
+        public float[] position = new float[3];
+        public float[] rotation = new float[4]; // Quaternion
+    }
+
+    [System.Serializable]
+    public class PointCloudPoint
+    {
+        public float[] position = new float[3];
+        public float[] color = new float[3];
+    }
+
+    void Start()
+    {
+        // Create session directory with timestamp
+        string timestamp = DateTime.Now.ToString("yyyy-MM-dd_HH-mm-ss");
+        sessionDirectory = Path.Combine(exportDirectory, $"session_{timestamp}");
+        Directory.CreateDirectory(sessionDirectory);
+
+        // Create subdirectories
+        Directory.CreateDirectory(Path.Combine(sessionDirectory, "images"));
+        Directory.CreateDirectory(Path.Combine(sessionDirectory, "depth"));
+        Directory.CreateDirectory(Path.Combine(sessionDirectory, "pointclouds"));
+        Directory.CreateDirectory(Path.Combine(sessionDirectory, "metadata"));
+    }
+
+    void Update()
+    {
+        frameCount++;
+        if (frameCount % exportFrequency == 0)
+        {
+            ExportFrameData();
+        }
+    }
+
+    void ExportFrameData()
+    {
+        SensorData data = new SensorData();
+        data.timestamp = DateTime.Now.ToString("o"); // ISO 8601 format
+        data.sampleId = sampleCount.ToString("D6");
+
+        // Capture robot transform
+        data.robotTransform = new TransformData();
+        data.robotTransform.position[0] = transform.position.x;
+        data.robotTransform.position[1] = transform.position.y;
+        data.robotTransform.position[2] = transform.position.z;
+        data.robotTransform.rotation[0] = transform.rotation.x;
+        data.robotTransform.rotation[1] = transform.rotation.y;
+        data.robotTransform.rotation[2] = transform.rotation.z;
+        data.robotTransform.rotation[3] = transform.rotation.w;
+
+        // Export images
+        if (exportImages && rgbCamera != null)
+        {
+            string imagePath = Path.Combine(sessionDirectory, "images", $"rgb_{sampleCount:D6}.png");
+            CaptureCameraImage(rgbCamera, imagePath);
+            data.rgbImagePath = imagePath;
+        }
+
+        if (exportDepth && depthCamera != null)
+        {
+            string depthPath = Path.Combine(sessionDirectory, "depth", $"depth_{sampleCount:D6}.png");
+            CaptureDepthImage(depthCamera, depthPath);
+            data.depthImagePath = depthPath;
+        }
+
+        if (exportPointClouds)
+        {
+            string pcPath = Path.Combine(sessionDirectory, "pointclouds", $"pc_{sampleCount:D6}.json");
+            GenerateAndSavePointCloud(pcPath);
+        }
+
+        // Save metadata
+        string metaPath = Path.Combine(sessionDirectory, "metadata", $"metadata_{sampleCount:D6}.json");
+        string jsonData = JsonUtility.ToJson(data, true);
+        File.WriteAllText(metaPath, jsonData);
+
+        sampleCount++;
+        Debug.Log($"Exported sample {sampleCount}");
+    }
+
+    void CaptureCameraImage(Camera cam, string path)
+    {
+        RenderTexture currentRT = RenderTexture.active;
+        RenderTexture.active = cam.targetTexture;
+
+        Texture2D image = new Texture2D(cam.targetTexture.width, cam.targetTexture.height, TextureFormat.RGB24, false);
+        image.ReadPixels(new Rect(0, 0, cam.targetTexture.width, cam.targetTexture.height), 0, 0);
+        image.Apply();
+
+        byte[] bytes = image.EncodeToPNG();
+        File.WriteAllBytes(path, bytes);
+
+        RenderTexture.active = currentRT;
+        DestroyImmediate(image);
+    }
+
+    void CaptureDepthImage(Camera cam, string path)
+    {
+        // This is a simplified depth capture - in practice, you'd use a custom depth shader
+        RenderTexture currentRT = RenderTexture.active;
+        RenderTexture.active = cam.targetTexture;
+
+        Texture2D depthImage = new Texture2D(cam.targetTexture.width, cam.targetTexture.height, TextureFormat.RFloat, false);
+        depthImage.ReadPixels(new Rect(0, 0, cam.targetTexture.width, cam.targetTexture.height), 0, 0);
+        depthImage.Apply();
+
+        // Convert to grayscale for PNG
+        Color[] pixels = depthImage.GetPixels();
+        for (int i = 0; i < pixels.Length; i++)
+        {
+            float depthValue = pixels[i].r;
+            pixels[i] = new Color(depthValue, depthValue, depthValue, 1.0f);
+        }
+        depthImage.SetPixels(pixels);
+        depthImage.Apply();
+
+        byte[] bytes = depthImage.EncodeToPNG();
+        File.WriteAllBytes(path, bytes);
+
+        RenderTexture.active = currentRT;
+        DestroyImmediate(depthImage);
+    }
+
+    void GenerateAndSavePointCloud(string path)
+    {
+        // This is a simplified point cloud generation
+        // In practice, you'd generate from depth camera data
+        List<PointCloudPoint> points = new List<PointCloudPoint>();
+
+        // Generate some sample points
+        for (int i = 0; i < 100; i++)
+        {
+            PointCloudPoint point = new PointCloudPoint();
+            point.position[0] = UnityEngine.Random.Range(-5f, 5f);
+            point.position[1] = UnityEngine.Random.Range(0f, 2f);
+            point.position[2] = UnityEngine.Random.Range(0f, 10f);
+            point.color[0] = UnityEngine.Random.Range(0f, 1f);
+            point.color[1] = UnityEngine.Random.Range(0f, 1f);
+            point.color[2] = UnityEngine.Random.Range(0f, 1f);
+            points.Add(point);
+        }
+
+        // Save as JSON
+        string jsonData = JsonUtility.ToJson(new { points = points.ToArray() }, true);
+        File.WriteAllText(path, jsonData);
+    }
+}
+```
+
+## Data Processing for AI Training
+
+### Data Preprocessing Pipeline
+
+```python
+import numpy as np
+import cv2
+import json
+import os
+from PIL import Image
+import tensorflow as tf
+from sklearn.model_selection import train_test_split
+
+class DataPreprocessor:
+    def __init__(self, data_dir):
+        self.data_dir = data_dir
+
+    def load_lidar_data(self, filename):
+        """Load LiDAR data from file"""
+        with open(filename, 'r') as f:
+            data = json.load(f)
+
+        ranges = np.array(data['ranges'])
+        # Filter out invalid readings
+        ranges[~np.isfinite(ranges)] = data['range_max']
+
+        return ranges
+
+    def load_image_data(self, filename):
+        """Load and preprocess image data"""
+        image = cv2.imread(filename)
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+
+        # Normalize pixel values to [0, 1]
+        image = image.astype(np.float32) / 255.0
+
+        return image
+
+    def load_depth_data(self, filename):
+        """Load and preprocess depth data"""
+        # Load 16-bit PNG depth image
+        depth = cv2.imread(filename, cv2.IMREAD_UNCHANGED)
+
+        # Convert back to real depth values (from our export process)
+        depth = depth.astype(np.float32) / 65535.0 * 10.0  # Assuming max depth of 10m
+
+        # Add channel dimension if needed
+        if len(depth.shape) == 2:
+            depth = np.expand_dims(depth, axis=-1)
+
+        return depth
+
+    def create_training_dataset(self, sequence_length=10):
+        """
+        Create a training dataset from exported simulation data
+        """
+        lidar_dir = os.path.join(self.data_dir, "lidar")
+        image_dir = os.path.join(self.data_dir, "images")
+        metadata_dir = os.path.join(self.data_dir, "metadata")
+
+        # Get all available samples
+        metadata_files = [f for f in os.listdir(metadata_dir) if f.endswith('.json')]
+        metadata_files.sort()
+
+        # Load and process data
+        processed_data = []
+
+        for meta_file in metadata_files:
+            # Load metadata
+            meta_path = os.path.join(metadata_dir, meta_file)
+            with open(meta_path, 'r') as f:
+                meta = json.load(f)
+
+            # Load corresponding sensor data
+            sample_id = int(meta['sample_range'][0])  # Use first sample in batch
+
+            # Example: Load LiDAR and image data
+            lidar_file = os.path.join(self.data_dir, "lidar", f"lidar_{sample_id:06d}.json")
+            image_file = os.path.join(self.data_dir, "images", f"rgb_{sample_id:06d}.png")
+
+            if os.path.exists(lidar_file) and os.path.exists(image_file):
+                lidar_data = self.load_lidar_data(lidar_file)
+                image_data = self.load_image_data(image_file)
+
+                # Create feature dictionary
+                features = {
+                    'lidar': lidar_data,
+                    'image': image_data,
+                    'timestamp': meta['export_timestamp']
+                }
+
+                processed_data.append(features)
+
+        return processed_data
+
+    def augment_data(self, data):
+        """
+        Apply data augmentation to increase dataset diversity
+        """
+        augmented_data = []
+
+        for sample in data:
+            # Original sample
+            augmented_data.append(sample)
+
+            # Add augmented versions
+            augmented_sample = sample.copy()
+
+            # Image augmentation (brightness, rotation, etc.)
+            if 'image' in sample:
+                image = sample['image']
+
+                # Random brightness adjustment
+                brightness_factor = np.random.uniform(0.8, 1.2)
+                augmented_image = np.clip(image * brightness_factor, 0, 1)
+                augmented_sample['image'] = augmented_image
+
+            # LiDAR augmentation (add noise)
+            if 'lidar' in sample:
+                lidar = sample['lidar'].copy()
+                noise = np.random.normal(0, 0.01, lidar.shape)  # Add small noise
+                augmented_lidar = lidar + noise
+                augmented_sample['lidar'] = np.clip(augmented_lidar, 0, 10)  # Keep in reasonable range
+
+            augmented_data.append(augmented_sample)
+
+        return augmented_data
+
+    def create_tf_dataset(self, data, batch_size=32):
+        """
+        Create a TensorFlow dataset from processed data
+        """
+        def generator():
+            for sample in data:
+                # Prepare features
+                lidar = sample.get('lidar', np.zeros(720))  # Assuming 720 LiDAR rays
+                image = sample.get('image', np.zeros((480, 640, 3)))  # Assuming 480x640 RGB
+
+                # Prepare labels (this would depend on your specific task)
+                # For example, if training for navigation, labels might be actions
+                label = np.zeros(2)  # Placeholder - replace with actual labels
+
+                yield {'lidar': lidar, 'image': image}, label
+
+        # Create dataset
+        dataset = tf.data.Dataset.from_generator(
+            generator,
+            output_signature=(
+                {
+                    'lidar': tf.TensorSpec(shape=(720,), dtype=tf.float32),
+                    'image': tf.TensorSpec(shape=(480, 640, 3), dtype=tf.float32)
+                },
+                tf.TensorSpec(shape=(2,), dtype=tf.float32)
+            )
+        )
+
+        # Batch and prefetch
+        dataset = dataset.batch(batch_size).prefetch(tf.data.AUTOTUNE)
+
+        return dataset
+
+def prepare_training_data(data_directory):
+    """
+    Complete pipeline for preparing simulation data for AI training
+    """
+    preprocessor = DataPreprocessor(data_directory)
+
+    # Load and process data
+    raw_data = preprocessor.create_training_dataset()
+
+    # Apply augmentations
+    augmented_data = preprocessor.augment_data(raw_data)
+
+    # Split into train/validation sets
+    train_data, val_data = train_test_split(augmented_data, test_size=0.2, random_state=42)
+
+    # Create TensorFlow datasets
+    train_dataset = preprocessor.create_tf_dataset(train_data)
+    val_dataset = preprocessor.create_tf_dataset(val_data)
+
+    return train_dataset, val_dataset
+```
+
+## Data Format Standards
+
+### Standard Formats for Different ML Tasks
+
+#### Navigation/Path Planning
+```python
+def format_navigation_data(lidar_data, image_data, action_labels):
+    """
+    Format data for navigation learning
+    """
+    features = {
+        'sensor_fusion': np.concatenate([lidar_data, image_data.flatten()]),
+        'lidar_scan': lidar_data,
+        'visual_features': image_data
+    }
+
+    labels = {
+        'navigation_action': action_labels,  # Forward, turn left, turn right, stop
+        'target_velocity': np.array([0.5, 0.0, 0.0]),  # Linear and angular velocities
+        'safe_path': np.array([1.0, 0.5, 0.2])  # Distance to obstacles in different directions
+    }
+
+    return features, labels
+
+def format_manipulation_data(joint_states, camera_data, grasp_labels):
+    """
+    Format data for manipulation learning
+    """
+    features = {
+        'joint_positions': joint_states['positions'],
+        'joint_velocities': joint_states['velocities'],
+        'camera_view': camera_data,
+        'end_effector_pose': joint_states['end_effector_pose']
+    }
+
+    labels = {
+        'grasp_type': grasp_labels['type'],  # Precision, power, etc.
+        'grasp_position': grasp_labels['position'],  # 3D position
+        'grasp_orientation': grasp_labels['orientation']  # Quaternion
+    }
+
+    return features, labels
+```
+
+## Quality Assurance for Training Data
+
+### Data Validation Functions
+
+```python
+def validate_training_data(dataset):
+    """
+    Validate the quality of exported training data
+    """
+    validation_results = {
+        'total_samples': 0,
+        'valid_samples': 0,
+        'missing_data_ratio': 0,
+        'outlier_ratio': 0,
+        'data_consistency': True
+    }
+
+    outliers_detected = 0
+    missing_samples = 0
+
+    for sample in dataset:
+        validation_results['total_samples'] += 1
+
+        # Check for missing data
+        has_missing = False
+        for key, value in sample.items():
+            if value is None or (hasattr(value, '__len__') and len(value) == 0):
+                has_missing = True
+                break
+
+        if has_missing:
+            missing_samples += 1
+            continue
+
+        # Check for outliers in sensor data
+        if 'lidar' in sample:
+            lidar_data = sample['lidar']
+            # Check for unrealistic LiDAR values
+            if np.any(lidar_data < 0) or np.any(lidar_data > 100):  # 100m max range
+                outliers_detected += 1
+                continue
+
+        if 'image' in sample:
+            image_data = sample['image']
+            # Check for valid pixel ranges
+            if np.any(image_data < 0) or np.any(image_data > 1):
+                outliers_detected += 1
+                continue
+
+        validation_results['valid_samples'] += 1
+
+    validation_results['missing_data_ratio'] = missing_samples / validation_results['total_samples']
+    validation_results['outlier_ratio'] = outliers_detected / validation_results['total_samples']
+    validation_results['data_consistency'] = validation_results['valid_samples'] / validation_results['total_samples'] > 0.95  # 95% threshold
+
+    return validation_results
+
+def analyze_data_distribution(dataset):
+    """
+    Analyze the distribution of exported data
+    """
+    import matplotlib.pyplot as plt
+
+    # Extract LiDAR data for analysis
+    lidar_samples = []
+    for sample in dataset:
+        if 'lidar' in sample:
+            lidar_samples.append(sample['lidar'])
+
+    if lidar_samples:
+        lidar_samples = np.array(lidar_samples)
+
+        # Plot histogram of LiDAR values
+        plt.figure(figsize=(12, 4))
+
+        plt.subplot(1, 2, 1)
+        plt.hist(lidar_samples.flatten(), bins=50, alpha=0.7)
+        plt.title('Distribution of LiDAR Range Values')
+        plt.xlabel('Range (m)')
+        plt.ylabel('Frequency')
+
+        plt.subplot(1, 2, 2)
+        plt.plot(np.mean(lidar_samples, axis=0))
+        plt.title('Average LiDAR Scan Profile')
+        plt.xlabel('Angle Index')
+        plt.ylabel('Average Range (m)')
+
+        plt.tight_layout()
+        plt.savefig('lidar_data_analysis.png')
+        plt.show()
+
+def generate_data_report(dataset, output_path="data_report.md"):
+    """
+    Generate a comprehensive report about the exported training data
+    """
+    validation_results = validate_training_data(dataset)
+
+    report = f"""
+# Simulation Data Export Report
+
+## Dataset Overview
+- Total samples: {validation_results['total_samples']}
+- Valid samples: {validation_results['valid_samples']}
+- Data quality: {validation_results['data_consistency']}
+
+## Data Quality Metrics
+- Missing data ratio: {validation_results['missing_data_ratio']:.2%}
+- Outlier ratio: {validation_results['outlier_ratio']:.2%}
+
+## Recommendations
+- Data quality is {'acceptable' if validation_results['data_consistency'] else 'poor'}
+- {'No further action needed' if validation_results['missing_data_ratio'] < 0.05 else 'Consider investigating data collection process'}
+    """
+
+    with open(output_path, 'w') as f:
+        f.write(report)
+
+    print(f"Data report saved to {output_path}")
+```
+
+## Best Practices for Data Export
+
+1. **Consistent Timestamps**: Ensure all sensor data is properly synchronized
+2. **Data Validation**: Validate data ranges and consistency before export
+3. **Diverse Scenarios**: Include various environments and conditions
+4. **Proper Labeling**: Include ground truth data for supervised learning
+5. **Format Standards**: Use standard formats compatible with ML frameworks
+6. **Metadata**: Include comprehensive metadata for each sample
+7. **Quality Checks**: Implement validation checks to ensure data quality
+
+## Summary
+
+Exporting simulation data for AI training is a crucial step in developing robust robotics systems. Properly structured and validated data enables the training of machine learning models that can generalize to real-world scenarios. Following best practices for data export, preprocessing, and validation ensures high-quality training datasets that lead to better-performing AI systems.

@@ -1,0 +1,765 @@
+---
+title: Voice-to-Text with OpenAI Whisper
+---
+
+# Voice-to-Text with OpenAI Whisper
+
+## Introduction to OpenAI Whisper
+
+OpenAI Whisper is a state-of-the-art automatic speech recognition (ASR) system that converts speech to text. It's particularly valuable for robotics applications as it enables natural language interaction with robots through voice commands. Whisper is robust to accents, background noise, and technical language, making it ideal for real-world robotic applications.
+
+## Whisper Architecture and Capabilities
+
+### Model Architecture
+Whisper uses a multitask architecture that jointly learns to recognize speech, translate languages, and perform speech-to-text. The model is trained on a large dataset of audio-text pairs and can handle multiple languages.
+
+### Key Features
+- **Multilingual Support**: Supports 99+ languages
+- **Robustness**: Handles accents, background noise, and technical language
+- **Real-time Processing**: Can be optimized for streaming applications
+- **Open Source**: Available under MIT license
+
+## Installation and Setup
+
+### Python Installation
+
+```bash
+pip install openai-whisper
+# Or for GPU acceleration
+pip install openai-whisper[cuda]
+```
+
+### Dependencies
+
+```bash
+# Install FFmpeg for audio processing
+# On Ubuntu/Debian
+sudo apt update
+sudo apt install ffmpeg
+
+# On macOS
+brew install ffmpeg
+
+# On Windows
+# Download from https://ffmpeg.org/download.html
+```
+
+## Basic Whisper Usage
+
+### Simple Transcription
+
+```python
+import whisper
+import torch
+
+# Load model (models: tiny, base, small, medium, large)
+model = whisper.load_model("base")
+
+# Transcribe audio file
+result = model.transcribe("path/to/audio.mp3")
+print(result["text"])
+
+# Load audio from microphone would require additional setup
+```
+
+### ROS 2 Integration for Audio Input
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from sensor_msgs.msg import AudioData
+import whisper
+import torch
+import numpy as np
+import pyaudio
+import wave
+import threading
+import queue
+
+class WhisperNode(Node):
+    def __init__(self):
+        super().__init__('whisper_node')
+
+        # Initialize Whisper model
+        self.model = whisper.load_model("base")
+
+        # Audio recording parameters
+        self.chunk = 1024
+        self.format = pyaudio.paInt16
+        self.channels = 1
+        self.rate = 16000  # Whisper works best at 16kHz
+        self.record_seconds = 5
+
+        # Publisher for transcribed text
+        self.text_pub = self.create_publisher(String, 'voice_commands', 10)
+
+        # Timer for periodic recording
+        self.timer = self.create_timer(5.0, self.record_and_transcribe)
+
+        self.get_logger().info('Whisper node initialized')
+
+    def record_and_transcribe(self):
+        """
+        Record audio and transcribe using Whisper
+        """
+        try:
+            # Record audio
+            audio_data = self.record_audio()
+
+            # Save to temporary file for Whisper processing
+            temp_filename = f"/tmp/temp_audio_{int(self.get_clock().now().nanoseconds/1e9)}.wav"
+            self.save_audio_to_file(audio_data, temp_filename)
+
+            # Transcribe
+            result = self.model.transcribe(temp_filename)
+
+            # Publish result
+            text_msg = String()
+            text_msg.data = result["text"]
+            self.text_pub.publish(text_msg)
+
+            self.get_logger().info(f'Transcribed: {result["text"]}')
+
+            # Clean up temp file
+            import os
+            os.remove(temp_filename)
+
+        except Exception as e:
+            self.get_logger().error(f'Whisper processing error: {e}')
+
+    def record_audio(self):
+        """
+        Record audio from microphone
+        """
+        p = pyaudio.PyAudio()
+
+        stream = p.open(
+            format=self.format,
+            channels=self.channels,
+            rate=self.rate,
+            input=True,
+            frames_per_buffer=self.chunk
+        )
+
+        frames = []
+
+        for i in range(0, int(self.rate / self.chunk * self.record_seconds)):
+            data = stream.read(self.chunk)
+            frames.append(data)
+
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+
+        return b''.join(frames)
+
+    def save_audio_to_file(self, audio_data, filename):
+        """
+        Save recorded audio to WAV file
+        """
+        wf = wave.open(filename, 'wb')
+        wf.setnchannels(self.channels)
+        wf.setsampwidth(pyaudio.PyAudio().get_sample_size(self.format))
+        wf.setframerate(self.rate)
+        wf.writeframes(audio_data)
+        wf.close()
+
+def main(args=None):
+    rclpy.init(args=args)
+    whisper_node = WhisperNode()
+
+    try:
+        rclpy.spin(whisper_node)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        whisper_node.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Streaming Speech Recognition
+
+### Real-time Streaming with Whisper
+
+```python
+import threading
+import queue
+import time
+import numpy as np
+from scipy.io.wavfile import write
+import tempfile
+import os
+
+class StreamingWhisperNode(Node):
+    def __init__(self):
+        super().__init__('streaming_whisper_node')
+
+        self.model = whisper.load_model("base")
+
+        # Audio parameters
+        self.chunk = 1024
+        self.format = pyaudio.paInt16
+        self.channels = 1
+        self.rate = 16000
+        self.buffer_size = 4  # Number of chunks to buffer before processing
+
+        # Audio buffer
+        self.audio_buffer = queue.Queue()
+
+        # Publishers
+        self.text_pub = self.create_publisher(String, 'voice_commands', 10)
+        self.interim_pub = self.create_publisher(String, 'interim_transcription', 10)
+
+        # Start audio recording thread
+        self.recording = True
+        self.recording_thread = threading.Thread(target=self.audio_recording_loop)
+        self.recording_thread.start()
+
+        # Start processing thread
+        self.processing_thread = threading.Thread(target=self.processing_loop)
+        self.processing_thread.start()
+
+        self.get_logger().info('Streaming Whisper node initialized')
+
+    def audio_recording_loop(self):
+        """
+        Continuously record audio and add to buffer
+        """
+        p = pyaudio.PyAudio()
+
+        stream = p.open(
+            format=self.format,
+            channels=self.channels,
+            rate=self.rate,
+            input=True,
+            frames_per_buffer=self.chunk
+        )
+
+        while self.recording:
+            data = stream.read(self.chunk)
+            self.audio_buffer.put(data)
+
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+
+    def processing_loop(self):
+        """
+        Process audio buffer and generate transcriptions
+        """
+        buffer_data = []
+
+        while self.recording:
+            # Collect audio data
+            while not self.audio_buffer.empty() and len(buffer_data) < self.buffer_size:
+                chunk = self.audio_buffer.get()
+                buffer_data.append(chunk)
+
+            if len(buffer_data) >= self.buffer_size:
+                # Process the buffered audio
+                audio_bytes = b''.join(buffer_data)
+                audio_np = self.bytes_to_numpy(audio_bytes)
+
+                # Transcribe
+                try:
+                    # Create temporary file for Whisper
+                    with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+                        # Save audio to temp file
+                        temp_filename = temp_file.name
+                        self.save_audio_numpy(audio_np, temp_filename)
+
+                        # Transcribe
+                        result = self.model.transcribe(temp_filename)
+
+                        # Publish result
+                        text_msg = String()
+                        text_msg.data = result["text"]
+                        self.text_pub.publish(text_msg)
+
+                        self.get_logger().info(f'Streaming transcription: {result["text"]}')
+
+                        # Clean up
+                        os.unlink(temp_filename)
+
+                except Exception as e:
+                    self.get_logger().error(f'Streaming transcription error: {e}')
+
+                # Clear buffer
+                buffer_data = []
+
+            time.sleep(0.1)  # Small delay to prevent busy waiting
+
+    def bytes_to_numpy(self, audio_bytes):
+        """
+        Convert audio bytes to numpy array
+        """
+        audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
+        # Normalize to [-1, 1]
+        audio_np = audio_np.astype(np.float32) / 32768.0
+        return audio_np
+
+    def save_audio_numpy(self, audio_np, filename):
+        """
+        Save numpy audio array to WAV file
+        """
+        # Convert back to int16 for WAV
+        audio_int16 = (audio_np * 32767).astype(np.int16)
+        write(filename, self.rate, audio_int16)
+
+    def destroy_node(self):
+        self.recording = False
+        super().destroy_node()
+```
+
+## Voice Command Processing
+
+### Command Recognition and Filtering
+
+```python
+class VoiceCommandProcessor:
+    def __init__(self, node):
+        self.node = node
+        self.robot_commands = [
+            "move forward",
+            "move backward",
+            "turn left",
+            "turn right",
+            "stop",
+            "pick up object",
+            "put down object",
+            "go to kitchen",
+            "go to living room",
+            "go to bedroom"
+        ]
+
+        # Confidence threshold for command recognition
+        self.confidence_threshold = 0.7
+
+    def process_voice_command(self, transcribed_text):
+        """
+        Process transcribed text and extract robot commands
+        """
+        # Clean and normalize the text
+        clean_text = self.clean_transcription(transcribed_text)
+
+        # Find best matching command
+        best_match, confidence = self.find_best_command_match(clean_text)
+
+        if confidence > self.confidence_threshold:
+            self.node.get_logger().info(f'Command recognized: {best_match} (confidence: {confidence:.2f})')
+            return best_match
+        else:
+            self.node.get_logger().info(f'No confident command match for: {clean_text}')
+            return None
+
+    def clean_transcription(self, text):
+        """
+        Clean and normalize transcribed text
+        """
+        # Convert to lowercase
+        text = text.lower().strip()
+
+        # Remove punctuation and extra spaces
+        import re
+        text = re.sub(r'[^\w\s]', ' ', text)
+        text = ' '.join(text.split())
+
+        return text
+
+    def find_best_command_match(self, text):
+        """
+        Find the best matching command using similarity
+        """
+        from difflib import SequenceMatcher
+
+        best_match = None
+        best_ratio = 0
+
+        for command in self.robot_commands:
+            ratio = SequenceMatcher(None, text, command).ratio()
+            if ratio > best_ratio:
+                best_ratio = ratio
+                best_match = command
+
+        return best_match, best_ratio
+```
+
+## Whisper with ROS 2 Audio Topics
+
+### Processing Audio from ROS 2 Topics
+
+```python
+class ROS2WhisperNode(Node):
+    def __init__(self):
+        super().__init__('ros2_whisper_node')
+
+        # Initialize Whisper model
+        self.model = whisper.load_model("base")
+
+        # Subscribe to audio topic
+        self.audio_sub = self.create_subscription(
+            AudioData,
+            '/audio_input',
+            self.audio_callback,
+            10
+        )
+
+        # Publishers
+        self.text_pub = self.create_publisher(String, 'voice_commands', 10)
+        self.confidence_pub = self.create_publisher(String, 'transcription_confidence', 10)
+
+        # Audio processing parameters
+        self.sample_rate = 16000
+        self.chunk_size = 16000  # 1 second of audio at 16kHz
+
+        # Audio buffer for accumulating chunks
+        self.audio_buffer = []
+        self.buffer_duration = 3  # Process every 3 seconds of audio
+
+        self.get_logger().info('ROS2 Whisper node initialized')
+
+    def audio_callback(self, msg):
+        """
+        Process incoming audio data from ROS 2 topic
+        """
+        try:
+            # Convert AudioData message to numpy array
+            audio_np = self.ros_audio_to_numpy(msg)
+
+            # Add to buffer
+            self.audio_buffer.extend(audio_np)
+
+            # Check if we have enough audio to process
+            if len(self.audio_buffer) >= self.buffer_duration * self.sample_rate:
+                # Process the accumulated audio
+                self.process_audio_buffer()
+
+        except Exception as e:
+            self.get_logger().error(f'Audio callback error: {e}')
+
+    def ros_audio_to_numpy(self, audio_msg):
+        """
+        Convert ROS AudioData message to numpy array
+        """
+        import struct
+
+        # Assuming audio_msg.data contains raw audio bytes
+        # Format depends on the audio source
+        audio_bytes = audio_msg.data
+
+        # Convert to numpy array (assuming 16-bit signed integers)
+        audio_np = np.frombuffer(audio_bytes, dtype=np.int16)
+
+        # Normalize to [-1, 1]
+        audio_np = audio_np.astype(np.float32) / 32768.0
+
+        return audio_np
+
+    def process_audio_buffer(self):
+        """
+        Process the accumulated audio buffer with Whisper
+        """
+        if len(self.audio_buffer) == 0:
+            return
+
+        # Convert to numpy array
+        audio_np = np.array(self.audio_buffer, dtype=np.float32)
+
+        # Convert back to int16 for WAV format
+        audio_int16 = (audio_np * 32767).astype(np.int16)
+
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+            temp_filename = temp_file.name
+            write(temp_filename, self.sample_rate, audio_int16)
+
+            try:
+                # Transcribe
+                result = self.model.transcribe(temp_filename)
+
+                # Publish results
+                text_msg = String()
+                text_msg.data = result["text"]
+                self.text_pub.publish(text_msg)
+
+                confidence_msg = String()
+                confidence_msg.data = f"Confidence: {result.get('avg_logprob', 0):.2f}"
+                self.confidence_pub.publish(confidence_msg)
+
+                self.get_logger().info(f'Transcribed: {result["text"]}')
+
+            except Exception as e:
+                self.get_logger().error(f'Transcription error: {e}')
+            finally:
+                # Clean up
+                os.unlink(temp_filename)
+
+        # Clear buffer
+        self.audio_buffer = []
+```
+
+## Performance Optimization
+
+### GPU Acceleration for Whisper
+
+```python
+class OptimizedWhisperNode(Node):
+    def __init__(self):
+        super().__init__('optimized_whisper_node')
+
+        # Check for GPU availability
+        if torch.cuda.is_available():
+            self.device = "cuda"
+            self.get_logger().info('Using GPU for Whisper processing')
+        else:
+            self.device = "cpu"
+            self.get_logger().info('Using CPU for Whisper processing')
+
+        # Load model on specified device
+        self.model = whisper.load_model("base", device=self.device)
+
+        # Publishers
+        self.text_pub = self.create_publisher(String, 'voice_commands', 10)
+
+        # Timer for processing
+        self.timer = self.create_timer(2.0, self.process_audio_if_available)
+
+        # Audio data queue
+        self.audio_queue = queue.Queue()
+
+        self.get_logger().info('Optimized Whisper node initialized')
+
+    def add_audio_to_queue(self, audio_data):
+        """
+        Add audio data to processing queue
+        """
+        if self.audio_queue.qsize() < 10:  # Limit queue size
+            self.audio_queue.put(audio_data)
+        else:
+            self.get_logger().warn('Audio queue full, dropping audio')
+
+    def process_audio_if_available(self):
+        """
+        Process audio if available in queue
+        """
+        if not self.audio_queue.empty():
+            audio_data = self.audio_queue.get()
+            self.transcribe_audio(audio_data)
+
+    def transcribe_audio(self, audio_data):
+        """
+        Transcribe audio data using Whisper
+        """
+        try:
+            # Process on appropriate device
+            with torch.no_grad():
+                if self.device == "cuda":
+                    # Move audio to GPU if needed
+                    audio_tensor = torch.from_numpy(audio_data).to(self.device)
+                else:
+                    audio_tensor = torch.from_numpy(audio_data)
+
+                # Transcribe
+                result = self.model.transcribe(audio_tensor.cpu().numpy())
+
+                # Publish result
+                text_msg = String()
+                text_msg.data = result["text"]
+                self.text_pub.publish(text_msg)
+
+                self.get_logger().info(f'Optimized transcription: {result["text"]}')
+
+        except Exception as e:
+            self.get_logger().error(f'Optimized transcription error: {e}')
+```
+
+## Voice Activity Detection
+
+### Integrating VAD with Whisper
+
+```python
+import webrtcvad
+import collections
+
+class VADWhisperNode(Node):
+    def __init__(self):
+        super().__init__('vad_whisper_node')
+
+        # Initialize Whisper
+        self.model = whisper.load_model("base")
+
+        # Initialize WebRTC VAD
+        self.vad = webrtcvad.Vad()
+        self.vad.set_mode(3)  # Aggressive VAD mode
+
+        # Audio parameters (VAD works with 8kHz, 16kHz, or 32kHz)
+        self.sample_rate = 16000
+        self.frame_duration = 30  # ms
+        self.frame_size = int(self.sample_rate * self.frame_duration / 1000) * 2  # 2 bytes per sample
+
+        # Voice activity buffer
+        self.voice_buffer = b""
+        self.silence_threshold = 50  # frames of silence before processing
+        self.silence_count = 0
+
+        # Publishers
+        self.text_pub = self.create_publisher(String, 'voice_commands', 10)
+
+        self.get_logger().info('VAD Whisper node initialized')
+
+    def process_audio_with_vad(self, audio_bytes):
+        """
+        Process audio with voice activity detection
+        """
+        # Split audio into frames for VAD
+        frames = self.frame_generator(self.frame_duration, audio_bytes, self.sample_rate)
+
+        for frame in frames:
+            is_speech = self.vad.is_speech(frame, self.sample_rate)
+
+            if is_speech:
+                # Add to voice buffer
+                self.voice_buffer += frame
+                self.silence_count = 0
+            else:
+                # Check if we have accumulated enough voice data
+                if len(self.voice_buffer) > 0:
+                    self.silence_count += 1
+
+                    if self.silence_count >= self.silence_threshold:
+                        # Process the accumulated voice data
+                        self.process_voice_buffer()
+                        self.silence_count = 0
+
+    def process_voice_buffer(self):
+        """
+        Process the accumulated voice buffer with Whisper
+        """
+        if len(self.voice_buffer) < 16000:  # At least 1 second of audio
+            self.voice_buffer = b""
+            return
+
+        # Save to temporary file
+        with tempfile.NamedTemporaryFile(suffix='.wav', delete=False) as temp_file:
+            temp_filename = temp_file.name
+
+            # Convert bytes to proper format and save
+            audio_np = np.frombuffer(self.voice_buffer, dtype=np.int16)
+            audio_int16 = (audio_np.astype(np.float32) / 32768.0 * 32767).astype(np.int16)
+            write(temp_filename, self.sample_rate, audio_int16)
+
+            try:
+                # Transcribe
+                result = self.model.transcribe(temp_filename)
+
+                # Publish result
+                text_msg = String()
+                text_msg.data = result["text"]
+                self.text_pub.publish(text_msg)
+
+                self.get_logger().info(f'VAD transcription: {result["text"]}')
+
+            except Exception as e:
+                self.get_logger().error(f'VAD transcription error: {e}')
+            finally:
+                os.unlink(temp_filename)
+
+        # Clear buffer
+        self.voice_buffer = b""
+
+    def frame_generator(self, frame_duration_ms, audio, sample_rate):
+        """
+        Generate audio frames from PCM audio data
+        """
+        n = int(sample_rate * (frame_duration_ms / 1000.0) * 2)  # 2 bytes per sample
+        offset = 0
+        while offset + n < len(audio):
+            yield audio[offset:offset + n]
+            offset += n
+```
+
+## Best Practices for Whisper Integration
+
+### Error Handling and Robustness
+
+```python
+class RobustWhisperNode(Node):
+    def __init__(self):
+        super().__init__('robust_whisper_node')
+
+        # Initialize with fallback
+        try:
+            self.model = whisper.load_model("base")
+        except Exception as e:
+            self.get_logger().error(f'Failed to load Whisper model: {e}')
+            # Try loading a smaller model
+            try:
+                self.model = whisper.load_model("tiny")
+                self.get_logger().info('Loaded tiny model as fallback')
+            except:
+                self.get_logger().error('Failed to load any Whisper model')
+                return
+
+        # Audio parameters with validation
+        self.sample_rate = 16000
+        self.max_audio_duration = 30  # seconds
+        self.min_audio_duration = 0.5  # seconds
+
+        # Publishers
+        self.text_pub = self.create_publisher(String, 'voice_commands', 10)
+        self.status_pub = self.create_publisher(String, 'whisper_status', 10)
+
+        # Error counters
+        self.error_count = 0
+        self.max_errors = 10
+
+        self.get_logger().info('Robust Whisper node initialized')
+
+    def safe_transcribe(self, audio_data):
+        """
+        Safely transcribe audio with error handling
+        """
+        try:
+            # Validate audio data
+            if len(audio_data) == 0:
+                self.get_logger().warn('Empty audio data received')
+                return None
+
+            # Check audio duration
+            duration = len(audio_data) / self.sample_rate
+            if duration < self.min_audio_duration:
+                self.get_logger().debug(f'Audio too short: {duration:.2f}s')
+                return None
+
+            if duration > self.max_audio_duration:
+                self.get_logger().warn(f'Audio too long: {duration:.2f}s, truncating')
+                audio_data = audio_data[:int(self.max_audio_duration * self.sample_rate)]
+
+            # Perform transcription
+            result = self.model.transcribe(audio_data)
+
+            # Reset error counter on success
+            self.error_count = 0
+
+            return result
+
+        except Exception as e:
+            self.error_count += 1
+            self.get_logger().error(f'Whisper transcription error #{self.error_count}: {e}')
+
+            # If too many errors, publish status
+            if self.error_count >= self.max_errors:
+                status_msg = String()
+                status_msg.data = f"ERROR: Too many transcription failures ({self.error_count})"
+                self.status_pub.publish(status_msg)
+
+            return None
+```
+
+## Summary
+
+OpenAI Whisper provides a powerful and robust solution for voice-to-text conversion in robotics applications. By integrating Whisper with ROS 2, robots can understand and respond to natural language commands. Proper implementation requires attention to audio quality, real-time processing requirements, and error handling to create a reliable voice interface for robotic systems.

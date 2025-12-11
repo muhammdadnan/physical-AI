@@ -1,0 +1,292 @@
+---
+title: LiDAR Simulation
+---
+
+# LiDAR Simulation
+
+## Introduction to LiDAR in Simulation
+
+LiDAR (Light Detection and Ranging) sensors are crucial for robotics applications, providing accurate 3D spatial information. In simulation environments like Gazebo, we can create realistic LiDAR sensors that generate data similar to real hardware.
+
+## Setting up LiDAR in Gazebo
+
+### Gazebo Sensor Configuration
+
+To add a LiDAR sensor to your robot model in Gazebo, you need to define it in your URDF/SDF file:
+
+```xml
+<!-- LiDAR Sensor -->
+<link name="lidar_link">
+  <visual>
+    <geometry>
+      <cylinder radius="0.05" length="0.04"/>
+    </geometry>
+    <material name="black">
+      <color rgba="0 0 0 1"/>
+    </material>
+  </visual>
+  <collision>
+    <geometry>
+      <cylinder radius="0.05" length="0.04"/>
+    </geometry>
+  </collision>
+  <inertial>
+    <mass value="0.1"/>
+    <inertia ixx="0.001" ixy="0.0" ixz="0.0" iyy="0.001" iyz="0.0" izz="0.001"/>
+  </inertial>
+</link>
+
+<joint name="lidar_joint" type="fixed">
+  <parent link="base_link"/>
+  <child link="lidar_link"/>
+  <origin xyz="0.1 0 0.1" rpy="0 0 0"/>
+</joint>
+
+<gazebo reference="lidar_link">
+  <sensor type="ray" name="lidar_sensor">
+    <pose>0 0 0 0 0 0</pose>
+    <visualize>true</visualize>
+    <update_rate>10</update_rate>
+    <ray>
+      <scan>
+        <horizontal>
+          <samples>720</samples>
+          <resolution>1</resolution>
+          <min_angle>-1.570796</min_angle>
+          <max_angle>1.570796</max_angle>
+        </horizontal>
+      </scan>
+      <range>
+        <min>0.1</min>
+        <max>30.0</max>
+        <resolution>0.01</resolution>
+      </range>
+    </ray>
+    <plugin name="lidar_controller" filename="libgazebo_ros_ray_sensor.so">
+      <ros>
+        <namespace>lidar</namespace>
+        <remapping>~/out:=scan</remapping>
+      </ros>
+      <output_type>sensor_msgs/LaserScan</output_type>
+      <frame_name>lidar_link</frame_name>
+    </plugin>
+  </sensor>
+</gazebo>
+```
+
+## Types of LiDAR Sensors
+
+### 2D LiDAR
+- Single horizontal scanning plane
+- Outputs LaserScan messages
+- Common models: Hokuyo URG-04LX, Sick TIM551
+
+### 3D LiDAR
+- Multiple scanning planes or spinning mechanism
+- Outputs PointCloud2 messages
+- Common models: Velodyne VLP-16, Ouster OS1
+
+## Implementing LiDAR Processing Node
+
+```python
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import LaserScan
+from std_msgs.msg import Header
+import numpy as np
+
+class LidarProcessor(Node):
+    def __init__(self):
+        super().__init__('lidar_processor')
+        self.subscription = self.create_subscription(
+            LaserScan,
+            'scan',
+            self.lidar_callback,
+            10)
+        self.obstacle_publisher = self.create_publisher(
+            Header,  # In practice, you'd use a custom message
+            'obstacle_detected',
+            10)
+
+        self.subscription  # prevent unused variable warning
+
+    def lidar_callback(self, msg):
+        # Process LiDAR data
+        ranges = np.array(msg.ranges)
+
+        # Filter out invalid readings
+        valid_ranges = ranges[np.isfinite(ranges)]
+
+        if len(valid_ranges) > 0:
+            min_distance = np.min(valid_ranges)
+
+            # Simple obstacle detection
+            if min_distance < 1.0:  # 1 meter threshold
+                self.get_logger().warn(f'Obstacle detected at {min_distance:.2f}m')
+
+                # Publish obstacle message
+                obstacle_msg = Header()
+                obstacle_msg.stamp = self.get_clock().now().to_msg()
+                self.obstacle_publisher.publish(obstacle_msg)
+
+                self.analyze_environment(ranges, msg.angle_min, msg.angle_max)
+
+    def analyze_environment(self, ranges, angle_min, angle_max):
+        # Convert to Cartesian coordinates for more detailed analysis
+        angles = np.linspace(angle_min, angle_max, len(ranges))
+
+        # Find valid points
+        valid_indices = np.isfinite(ranges)
+        valid_angles = angles[valid_indices]
+        valid_ranges = ranges[valid_indices]
+
+        # Convert to x, y coordinates
+        x_points = valid_ranges * np.cos(valid_angles)
+        y_points = valid_ranges * np.sin(valid_angles)
+
+        # Simple clustering to identify objects
+        # (This is a simplified approach - real systems use more sophisticated methods)
+        self.get_logger().info(f'Processed {len(x_points)} valid LiDAR points')
+
+def main(args=None):
+    rclpy.init(args=args)
+    lidar_processor = LidarProcessor()
+
+    try:
+        rclpy.spin(lidar_processor)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        lidar_processor.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Unity LiDAR Simulation
+
+In Unity, you can simulate LiDAR using raycasting:
+
+```csharp
+using UnityEngine;
+using System.Collections.Generic;
+
+public class UnityLidarSimulation : MonoBehaviour
+{
+    public int numberOfRays = 360;
+    public float maxDistance = 30.0f;
+    public float scanHeight = 0.1f; // Height of the scan plane
+    public LayerMask detectionMask;
+
+    private List<float> scanData;
+
+    void Start()
+    {
+        scanData = new List<float>(new float[numberOfRays]);
+    }
+
+    void Update()
+    {
+        PerformLidarScan();
+    }
+
+    void PerformLidarScan()
+    {
+        float angleStep = 360.0f / numberOfRays;
+
+        for (int i = 0; i < numberOfRays; i++)
+        {
+            float angle = i * angleStep * Mathf.Deg2Rad;
+            Vector3 direction = new Vector3(Mathf.Cos(angle), 0, Mathf.Sin(angle));
+
+            RaycastHit hit;
+            if (Physics.Raycast(transform.position + Vector3.up * scanHeight,
+                              direction,
+                              out hit,
+                              maxDistance,
+                              detectionMask))
+            {
+                scanData[i] = hit.distance;
+            }
+            else
+            {
+                scanData[i] = maxDistance; // No obstacle detected
+            }
+        }
+
+        // Publish scan data (would connect to ROS bridge in real implementation)
+        PublishScanData();
+    }
+
+    void PublishScanData()
+    {
+        // This would interface with ROS# or similar to publish to ROS
+        // For simulation purposes, you might visualize the data directly
+    }
+}
+```
+
+## LiDAR Data Visualization
+
+### RViz Visualization
+- LaserScan messages can be visualized directly in RViz
+- PointCloud2 messages show 3D point clouds
+- Grid maps can be generated from LiDAR data
+
+### Processing LiDAR Data for AI Training
+
+```python
+import numpy as np
+from sensor_msgs.msg import LaserScan
+
+def process_lidar_for_training(scan_msg):
+    """
+    Process LiDAR data for AI training datasets
+    """
+    # Convert to numpy array
+    ranges = np.array(scan_msg.ranges)
+
+    # Normalize the data
+    max_range = scan_msg.range_max
+    normalized_ranges = ranges / max_range
+
+    # Handle infinite values (replace with max range)
+    normalized_ranges[~np.isfinite(normalized_ranges)] = 1.0
+
+    # Return processed data suitable for neural network input
+    return normalized_ranges
+
+def extract_features_from_lidar(scan_msg):
+    """
+    Extract features from LiDAR data for higher-level processing
+    """
+    ranges = np.array(scan_msg.ranges)
+
+    # Calculate basic features
+    valid_ranges = ranges[np.isfinite(ranges)]
+
+    if len(valid_ranges) == 0:
+        return None
+
+    features = {
+        'min_distance': np.min(valid_ranges),
+        'mean_distance': np.mean(valid_ranges),
+        'std_distance': np.std(valid_ranges),
+        'obstacle_density': len(valid_ranges) / len(scan_msg.ranges),
+        'free_space_ratio': len(valid_ranges) / len(scan_msg.ranges)
+    }
+
+    return features
+```
+
+## Best Practices for LiDAR Simulation
+
+1. **Realistic Noise Models**: Add appropriate noise to simulate real sensor behavior
+2. **Performance Optimization**: Balance simulation accuracy with computational efficiency
+3. **Validation**: Compare simulated data with real sensor data when possible
+4. **Calibration**: Ensure simulated sensors match real-world specifications
+
+## Summary
+
+LiDAR simulation is essential for robotics development, allowing you to test navigation and perception algorithms in a safe, controlled environment. Properly configured LiDAR sensors in simulation provide valuable training data for AI systems and enable thorough testing of robotic applications before deployment to real hardware.
