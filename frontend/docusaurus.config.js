@@ -8,7 +8,7 @@ const config = {
   favicon: 'img/vla-pipeline.svg',
 
   // Set the production url of your site here
-  url: 'https://ai-native-book-fk1o8bu2x-muhammad-adnan-imams-projects.vercel.app',
+  url: 'https://ai-native-book.vercel.app',
   // Set the /<base>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
   baseUrl: '/',
