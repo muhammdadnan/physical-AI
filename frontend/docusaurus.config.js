@@ -8,17 +8,17 @@ const config = {
   favicon: 'img/vla-pipeline.svg',
 
   // Set the production url of your site here
-  url: 'https://your-username.github.io',
+  url: 'https://ai-native-book-fk1o8bu2x-muhammad-adnan-imams-projects.vercel.app',
   // Set the /<base>/ pathname under which your site is served
   // For GitHub pages deployment, it is often '/<projectName>/'
-  baseUrl:'/',
+  baseUrl: '/',
 
   // GitHub pages deployment config.
-  organizationName: 'your-organization', // Usually your GitHub org/user name.
-  projectName: 'ai-native-book', // Usually your repo name.
+  organizationName: 'muhammdadnan', // Usually your GitHub org/user name.
+  projectName: 'physical-AI', // Usually your repo name.
 
-  onBrokenLinks: 'warn',
-  onBrokenMarkdownLinks: 'warn',
+  onBrokenLinks: 'throw',
+  onBrokenMarkdownLinks: 'throw',
   markdown: {
     mermaid: true,
     mdx1Compat: {
@@ -71,7 +71,7 @@ const config = {
             position: 'left',
           },
           {
-            href: 'https://github.com/your-username/ai-native-book',
+            href: 'https://github.com/muhammdadnan/physical-AI',
             label: 'GitHub',
             position: 'right',
           },
@@ -107,7 +107,7 @@ const config = {
             items: [
               {
                 label: 'GitHub',
-                href: 'https://github.com/your-username/ai-native-book',
+                href: 'https://github.com/muhammdadnan/physical-AI',
               },
             ],
           },
