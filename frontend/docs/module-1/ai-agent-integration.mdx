@@ -1,0 +1,160 @@
+---
+title: AI Agent Integration
+---
+
+# AI Agent Integration
+
+## Connecting Python AI Agents to ROS 2
+
+In this section, we'll explore how to connect Python-based AI agents to ROS 2 systems. This is a crucial skill for bridging high-level AI decision-making with low-level robot control.
+
+## Basic AI Agent Structure
+
+An AI agent in the ROS 2 context typically consists of:
+- Perception: Receiving sensor data from ROS 2 topics
+- Decision-making: Processing information and making choices
+- Action: Sending commands through ROS 2 services or actions
+
+### Simple AI Agent Example
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from example_interfaces.srv import SetBool
+
+class SimpleAIAgent(Node):
+    def __init__(self):
+        super().__init__('ai_agent')
+
+        # Subscribe to sensor data
+        self.subscription = self.create_subscription(
+            String,
+            'sensor_data',
+            self.listener_callback,
+            10)
+
+        # Create service client to control robot
+        self.client = self.create_client(SetBool, 'robot_control')
+
+        # Timer for decision-making loop
+        self.timer = self.create_timer(1.0, self.decision_loop)
+
+    def listener_callback(self, msg):
+        self.get_logger().info(f'Received sensor data: {msg.data}')
+        self.process_sensor_data(msg.data)
+
+    def process_sensor_data(self, data):
+        # Simple AI logic
+        if 'obstacle' in data:
+            self.request_robot_action(True)  # Stop
+        else:
+            self.request_robot_action(False)  # Continue
+
+    def request_robot_action(self, should_stop):
+        while not self.client.wait_for_service(timeout_sec=1.0):
+            self.get_logger().info('Service not available, waiting again...')
+
+        request = SetBool.Request()
+        request.data = should_stop
+        self.future = self.client.call_async(request)
+
+    def decision_loop(self):
+        # Periodic decision making
+        self.get_logger().info('AI agent making decisions...')
+
+def main(args=None):
+    rclpy.init(args=args)
+    ai_agent = SimpleAIAgent()
+
+    rclpy.spin(ai_agent)
+    ai_agent.destroy_node()
+    rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Bridge Pattern Implementation
+
+The bridge pattern connects your AI logic to ROS 2 communication:
+
+### Bridge Node
+
+```python
+import rclpy
+from rclpy.node import Node
+from std_msgs.msg import String
+from sensor_msgs.msg import JointState
+from trajectory_msgs.msg import JointTrajectory
+
+class AIBridgeNode(Node):
+    def __init__(self):
+        super().__init__('ai_bridge')
+
+        # Publishers for AI to send commands
+        self.joint_pub = self.create_publisher(JointTrajectory, 'joint_trajectory', 10)
+
+        # Subscribers for sensor data
+        self.joint_sub = self.create_subscription(
+            JointState, 'joint_states', self.joint_callback, 10)
+
+        # Store current state for AI access
+        self.current_joint_state = None
+
+    def joint_callback(self, msg):
+        self.current_joint_state = msg
+        # Process with AI agent
+        self.process_with_ai(msg)
+
+    def process_with_ai(self, joint_state):
+        # Send data to your AI system
+        ai_decision = self.run_ai_logic(joint_state)
+        self.execute_ai_decision(ai_decision)
+
+    def run_ai_logic(self, joint_state):
+        # Your AI implementation here
+        # This could be a neural network, rule-based system, etc.
+        return {"action": "move", "joint": "arm_joint", "position": 1.5}
+
+    def execute_ai_decision(self, decision):
+        # Convert AI decision to ROS 2 command
+        if decision["action"] == "move":
+            self.move_joint(decision["joint"], decision["position"])
+
+    def move_joint(self, joint_name, position):
+        trajectory = JointTrajectory()
+        trajectory.joint_names = [joint_name]
+
+        point = JointTrajectoryPoint()
+        point.positions = [position]
+        point.time_from_start.sec = 1
+        trajectory.points.append(point)
+
+        self.joint_pub.publish(trajectory)
+```
+
+## Integration Patterns
+
+### Pattern 1: Reactive AI
+- Responds to sensor events immediately
+- Good for simple behaviors and reflexes
+
+### Pattern 2: Deliberative AI
+- Maintains internal state and plans actions
+- Good for complex task execution
+
+### Pattern 3: Hybrid AI
+- Combines reactive and deliberative approaches
+- Best for real-world applications
+
+## Mini-Project: AI-Controlled Robot Joint
+
+In this mini-project, you'll create an AI agent that controls a robot joint based on sensor input. Your system should:
+1. Subscribe to a sensor topic
+2. Process the sensor data with simple AI logic
+3. Control a joint based on the processed information
+
+## Summary
+
+AI agent integration is the bridge between high-level intelligence and physical robot control. Mastering this connection will allow you to implement sophisticated robotic behaviors that can respond intelligently to their environment.

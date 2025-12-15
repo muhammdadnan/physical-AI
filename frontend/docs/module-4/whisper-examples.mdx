@@ -1,0 +1,387 @@
+# Whisper Integration Examples
+
+This chapter provides practical examples of integrating Whisper into your VLA system, from basic usage to advanced streaming implementations.
+
+## Basic Voice Command Processing
+
+Here's a complete example of processing a voice command through the VLA system:
+
+```python
+import asyncio
+import requests
+import base64
+
+async def process_voice_command_example():
+    # Example audio data (in practice, this would come from a microphone)
+    audio_file_path = "sample_command.wav"
+
+    # Read and encode audio file
+    with open(audio_file_path, 'rb') as audio_file:
+        audio_bytes = audio_file.read()
+        audio_data = f"data:audio/wav;base64,{base64.b64encode(audio_bytes).decode('utf-8')}"
+
+    # Send to our voice API
+    voice_api_url = "http://localhost:8000/voice/transcribe"
+
+    payload = {
+        "audio_data": audio_data,
+        "audio_format": "wav"
+    }
+
+    response = requests.post(voice_api_url, json=payload)
+
+    if response.status_code == 200:
+        result = response.json()
+        print(f"Transcribed text: {result['text_transcription']}")
+        print(f"Confidence: {result['confidence']}")
+
+        # Pass to LLM planning system
+        await send_to_llm_planning(result['text_transcription'])
+    else:
+        print(f"Error: {response.status_code} - {response.text}")
+
+async def send_to_llm_planning(transcribed_text):
+    """Send transcribed text to LLM planning system"""
+    planning_api_url = "http://localhost:8000/planning/create"
+
+    payload = {
+        "goal": transcribed_text,
+        "context": "VLA system command"
+    }
+
+    response = requests.post(planning_api_url, json=payload)
+
+    if response.status_code == 200:
+        plan_result = response.json()
+        print(f"Generated plan with ID: {plan_result['id']}")
+        print(f"Plan sub-tasks: {len(plan_result['sub_tasks'])}")
+    else:
+        print(f"Planning error: {response.status_code} - {response.text}")
+```
+
+## Real-Time Streaming Voice Input
+
+For real-time applications, you can implement streaming voice input:
+
+```python
+import pyaudio
+import wave
+import threading
+import asyncio
+import requests
+import base64
+
+class StreamingVoiceProcessor:
+    def __init__(self, api_endpoint="http://localhost:8000/voice/streaming"):
+        self.api_endpoint = api_endpoint
+        self.chunk = 1024
+        self.format = pyaudio.paInt16
+        self.channels = 1
+        self.rate = 44100
+        self.record_seconds = 2  # Process 2-second chunks
+        self.session_id = f"session_{int(time.time())}"
+        self.is_listening = False
+
+    def start_listening(self):
+        """Start continuous listening and streaming"""
+        self.is_listening = True
+        listening_thread = threading.Thread(target=self._continuous_recording)
+        listening_thread.start()
+
+    def _continuous_recording(self):
+        """Internal method for continuous recording"""
+        audio = pyaudio.PyAudio()
+
+        while self.is_listening:
+            # Open stream
+            stream = audio.open(format=self.format,
+                               channels=self.channels,
+                               rate=self.rate,
+                               input=True,
+                               frames_per_buffer=self.chunk)
+
+            print("Recording...")
+            frames = []
+
+            # Record for specified duration
+            for i in range(0, int(self.rate / self.chunk * self.record_seconds)):
+                data = stream.read(self.chunk)
+                frames.append(data)
+
+            print("Processing chunk...")
+
+            # Stop and close the stream
+            stream.stop_stream()
+            stream.close()
+
+            # Process the chunk
+            self._process_audio_chunk(frames)
+
+        audio.terminate()
+
+    def _process_audio_chunk(self, frames):
+        """Process a chunk of audio frames"""
+        # Save to temporary file for processing
+        with wave.open("temp_chunk.wav", 'wb') as wf:
+            wf.setnchannels(self.channels)
+            wf.setsampwidth(pyaudio.PyAudio().get_sample_size(self.format))
+            wf.setframerate(self.rate)
+            wf.writeframes(b''.join(frames))
+
+        # Read and encode the temporary file
+        with open("temp_chunk.wav", 'rb') as temp_file:
+            audio_bytes = temp_file.read()
+            audio_data = base64.b64encode(audio_bytes).decode('utf-8')
+
+        # Send to API
+        payload = {
+            "audio_chunk": f"data:audio/wav;base64,{audio_data}",
+            "session_id": self.session_id,
+            "is_final": False  # Set to True when this is the final chunk
+        }
+
+        try:
+            response = requests.post(self.api_endpoint, json=payload)
+            if response.status_code == 200:
+                result = response.json()
+                print(f"Transcription: {result['text']}")
+                print(f"Confidence: {result['confidence']}")
+        except Exception as e:
+            print(f"Error processing chunk: {e}")
+
+    def stop_listening(self):
+        """Stop continuous listening"""
+        self.is_listening = False
+
+# Usage example
+def run_streaming_example():
+    processor = StreamingVoiceProcessor()
+    processor.start_listening()
+
+    # Listen for 30 seconds
+    import time
+    time.sleep(30)
+
+    processor.stop_listening()
+```
+
+## Voice Command Validation
+
+It's important to validate voice commands before processing:
+
+```python
+def validate_voice_command(text, confidence):
+    """Validate a voice command before processing"""
+    # Check confidence threshold
+    if confidence < -0.5:  # Low confidence threshold
+        return {
+            "valid": False,
+            "reason": "Low transcription confidence",
+            "confidence": confidence
+        }
+
+    # Check for command keywords
+    valid_commands = [
+        "move", "go", "navigate", "pick", "grasp", "take",
+        "place", "put", "clean", "help", "stop", "wait"
+    ]
+
+    text_lower = text.lower()
+    has_valid_command = any(cmd in text_lower for cmd in valid_commands)
+
+    if not has_valid_command:
+        return {
+            "valid": False,
+            "reason": "Command not recognized",
+            "suggestions": valid_commands[:5]
+        }
+
+    return {
+        "valid": True,
+        "normalized_text": text_lower
+    }
+
+# Example usage
+def process_validated_command(voice_result):
+    validation = validate_voice_command(
+        voice_result["text_transcription"],
+        voice_result["confidence"]
+    )
+
+    if validation["valid"]:
+        print(f"Processing command: {validation['normalized_text']}")
+        # Continue with LLM planning
+    else:
+        print(f"Invalid command: {validation['reason']}")
+        if "suggestions" in validation:
+            print(f"Suggestions: {validation['suggestions']}")
+```
+
+## Error Handling and Fallbacks
+
+Implement robust error handling for Whisper integration:
+
+```python
+import asyncio
+import time
+
+class RobustWhisperClient:
+    def __init__(self, max_retries=3, retry_delay=1):
+        self.max_retries = max_retries
+        self.retry_delay = retry_delay
+
+    async def transcribe_with_retry(self, audio_data, audio_format="wav"):
+        """Transcribe audio with retry logic"""
+        last_error = None
+
+        for attempt in range(self.max_retries):
+            try:
+                # Call the voice API
+                response = requests.post(
+                    "http://localhost:8000/voice/transcribe",
+                    json={
+                        "audio_data": audio_data,
+                        "audio_format": audio_format
+                    }
+                )
+
+                if response.status_code == 200:
+                    return response.json()
+                else:
+                    raise Exception(f"API error: {response.status_code}")
+
+            except Exception as e:
+                last_error = e
+                print(f"Attempt {attempt + 1} failed: {e}")
+
+                if attempt < self.max_retries - 1:
+                    await asyncio.sleep(self.retry_delay * (2 ** attempt))  # Exponential backoff
+
+        raise last_error
+
+    def fallback_processing(self, audio_data):
+        """Fallback processing if Whisper fails"""
+        # In a real system, you might:
+        # - Try a different ASR service
+        # - Ask user to repeat command
+        # - Use a local ASR model
+        # - Return to a safe state
+        return {
+            "text": "[AUDIO PROCESSING FAILED]",
+            "confidence": -1.0,
+            "fallback_used": True
+        }
+```
+
+## Integration with Frontend
+
+Here's how to integrate voice commands with a frontend application:
+
+```javascript
+// Frontend JavaScript for voice command integration
+class VoiceCommandInterface {
+  constructor(apiBaseUrl = 'http://localhost:8000') {
+    this.apiBaseUrl = apiBaseUrl;
+    this.recognition = null;
+    this.isRecording = false;
+  }
+
+  async startRecording() {
+    try {
+      // Request microphone access
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Create media recorder
+      this.mediaRecorder = new MediaRecorder(stream);
+      const audioChunks = [];
+
+      this.mediaRecorder.ondataavailable = event => {
+        audioChunks.push(event.data);
+      };
+
+      this.mediaRecorder.onstop = async () => {
+        // Convert audio chunks to blob
+        const audioBlob = new Blob(audioChunks, { type: 'audio/wav' });
+
+        // Convert to base64 for API
+        const base64Audio = await this.blobToBase64(audioBlob);
+
+        // Send to backend
+        await this.sendToBackend(base64Audio);
+      };
+
+      this.mediaRecorder.start();
+      this.isRecording = true;
+      console.log('Recording started');
+    } catch (error) {
+      console.error('Error accessing microphone:', error);
+    }
+  }
+
+  async sendToBackend(audioData) {
+    try {
+      const response = await fetch(`${this.apiBaseUrl}/voice/transcribe`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          audio_data: audioData,
+          audio_format: 'wav'
+        })
+      });
+
+      if (response.ok) {
+        const result = await response.json();
+        console.log('Voice command processed:', result);
+
+        // Handle the result (e.g., display transcription, trigger robot action)
+        this.handleVoiceResult(result);
+      } else {
+        console.error('Error sending voice command:', response.statusText);
+      }
+    } catch (error) {
+      console.error('Error sending voice command:', error);
+    }
+  }
+
+  async blobToBase64(blob) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        resolve(reader.result);
+      };
+      reader.onerror = reject;
+      reader.readAsDataURL(blob);
+    });
+  }
+
+  handleVoiceResult(result) {
+    // Display transcription
+    document.getElementById('transcription').textContent = result.text_transcription;
+
+    // Show confidence
+    document.getElementById('confidence').textContent = `Confidence: ${(result.confidence * 100).toFixed(2)}%`;
+
+    // Trigger next action based on result
+    if (result.confidence > -0.5) {  // Good confidence threshold
+      this.triggerRobotAction(result.text_transcription);
+    } else {
+      alert('Command not understood. Please try again.');
+    }
+  }
+
+  triggerRobotAction(command) {
+    // Send command to robot via ROS2 bridge or other interface
+    console.log('Triggering robot action:', command);
+  }
+}
+
+// Usage
+const voiceInterface = new VoiceCommandInterface();
+document.getElementById('startBtn').addEventListener('click', () => {
+  voiceInterface.startRecording();
+});
+```
+
+These examples demonstrate various approaches to integrating Whisper into your VLA system, from basic transcription to real-time streaming and frontend integration.

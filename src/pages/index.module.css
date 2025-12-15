@@ -12,7 +12,7 @@
 
 @media screen and (max-width: 996px) {
   .heroBanner {
-    padding: 2rem;
+    padding: 2rem 0;
   }
 }
 
@@ -20,4 +20,19 @@
   display: flex;
   align-items: center;
   justify-content: center;
+  gap: 1rem;
+}
+
+.features {
+  padding: 4rem 0;
+  width: 100%;
+}
+
+.features h2 {
+  color: #2e8555;
+}
+
+.features p {
+  font-size: 1.1rem;
+  line-height: 1.6;
 }

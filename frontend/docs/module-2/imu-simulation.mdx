@@ -1,0 +1,533 @@
+---
+title: IMU Simulation
+---
+
+# IMU Simulation
+
+## Introduction to IMU Sensors
+
+Inertial Measurement Units (IMUs) are crucial sensors in robotics that measure linear acceleration, angular velocity, and often orientation. They provide essential information about a robot's motion and orientation, which is particularly important for humanoid robots that need to maintain balance and navigate complex environments.
+
+## Setting up IMU in Gazebo
+
+### Gazebo IMU Configuration
+
+To add an IMU sensor to your robot model in Gazebo, you need to define it in your URDF/SDF file:
+
+```xml
+<!-- IMU Link -->
+<link name="imu_link">
+  <inertial>
+    <mass value="0.01"/>
+    <inertia ixx="0.0001" ixy="0" ixz="0" iyy="0.0001" iyz="0" izz="0.0001"/>
+  </inertial>
+</link>
+
+<joint name="imu_joint" type="fixed">
+  <parent link="base_link"/>
+  <child link="imu_link"/>
+  <origin xyz="0 0 0.1" rpy="0 0 0"/>
+</joint>
+
+<gazebo reference="imu_link">
+  <gravity>true</gravity>
+  <sensor name="imu_sensor" type="imu">
+    <always_on>true</always_on>
+    <update_rate>100</update_rate>
+    <visualize>true</visualize>
+    <topic>__default_topic__</topic>
+    <plugin name="imu_plugin" filename="libgazebo_ros_imu_sensor.so">
+      <ros>
+        <namespace>imu</namespace>
+        <remapping>~/out:=data</remapping>
+      </ros>
+      <frame_name>imu_link</frame_name>
+      <initial_orientation_as_reference>false</initial_orientation_as_reference>
+    </plugin>
+    <imu>
+      <angular_velocity>
+        <x>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.0017</stddev>
+          </noise>
+        </x>
+        <y>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.0017</stddev>
+          </noise>
+        </y>
+        <z>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.0017</stddev>
+          </noise>
+        </z>
+      </angular_velocity>
+      <linear_acceleration>
+        <x>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.017</stddev>
+          </noise>
+        </x>
+        <y>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.017</stddev>
+          </noise>
+        </y>
+        <z>
+          <noise type="gaussian">
+            <mean>0.0</mean>
+            <stddev>0.017</stddev>
+          </noise>
+        </z>
+      </linear_acceleration>
+    </imu>
+  </sensor>
+</gazebo>
+```
+
+## IMU Data Processing in ROS 2
+
+### Basic IMU Processing Node
+
+```python
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Imu
+from geometry_msgs.msg import Vector3
+import numpy as np
+from scipy.spatial.transform import Rotation as R
+
+class IMUProcessor(Node):
+    def __init__(self):
+        super().__init__('imu_processor')
+
+        # Subscriber for IMU data
+        self.subscription = self.create_subscription(
+            Imu,
+            '/imu/data',
+            self.imu_callback,
+            10)
+
+        # Publishers for processed data
+        self.orientation_pub = self.create_publisher(
+            Vector3,
+            '/imu/euler_orientation',
+            10)
+
+        self.gravity_compensated_pub = self.create_publisher(
+            Vector3,
+            '/imu/gravity_compensated_accel',
+            10)
+
+        self.subscription  # prevent unused variable warning
+
+    def imu_callback(self, msg):
+        # Extract orientation (as quaternion)
+        orientation_q = msg.orientation
+        quaternion = [orientation_q.x, orientation_q.y, orientation_q.z, orientation_q.w]
+
+        # Convert to Euler angles
+        r = R.from_quat(quaternion)
+        euler_angles = r.as_euler('xyz', degrees=True)
+
+        # Publish Euler angles
+        euler_msg = Vector3()
+        euler_msg.x = euler_angles[0]  # Roll
+        euler_msg.y = euler_angles[1]  # Pitch
+        euler_msg.z = euler_angles[2]  # Yaw
+        self.orientation_pub.publish(euler_msg)
+
+        # Extract linear acceleration
+        accel = np.array([msg.linear_acceleration.x,
+                         msg.linear_acceleration.y,
+                         msg.linear_acceleration.z])
+
+        # Gravity compensation (simplified - assumes known orientation)
+        rotation_matrix = r.as_matrix()
+        gravity_vector = np.array([0, 0, 9.81])  # Gravity in world frame
+        body_gravity = rotation_matrix @ gravity_vector  # Gravity in body frame
+        gravity_compensated_accel = accel - body_gravity
+
+        # Publish gravity-compensated acceleration
+        accel_msg = Vector3()
+        accel_msg.x = gravity_compensated_accel[0]
+        accel_msg.y = gravity_compensated_accel[1]
+        accel_msg.z = gravity_compensated_accel[2]
+        self.gravity_compensated_pub.publish(accel_msg)
+
+        # Log important values
+        self.get_logger().info(f'Roll: {euler_angles[0]:.2f}°, Pitch: {euler_angles[1]:.2f}°, Yaw: {euler_angles[2]:.2f}°')
+
+        # Check for balance (for humanoid robots)
+        self.check_balance(euler_angles)
+
+    def check_balance(self, euler_angles):
+        # Simple balance check - adjust thresholds based on your robot
+        max_tilt = 15.0  # degrees
+
+        if abs(euler_angles[0]) > max_tilt or abs(euler_angles[1]) > max_tilt:
+            self.get_logger().warn(f'Robot tilt exceeded safe limits: Roll={euler_angles[0]:.2f}°, Pitch={euler_angles[1]:.2f}°')
+
+def main(args=None):
+    rclpy.init(args=args)
+    imu_processor = IMUProcessor()
+
+    try:
+        rclpy.spin(imu_processor)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        imu_processor.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## IMU-Based State Estimation
+
+### Complementary Filter for Orientation
+
+```python
+import numpy as np
+from scipy.spatial.transform import Rotation as R
+
+class ComplementaryFilter:
+    def __init__(self, alpha=0.98, dt=0.01):
+        """
+        Complementary filter for orientation estimation
+        alpha: Weight for accelerometer (higher = more trust in accelerometer)
+        dt: Time step
+        """
+        self.alpha = alpha
+        self.dt = dt
+        self.orientation = R.from_quat([0, 0, 0, 1])  # Start with identity rotation
+
+    def update(self, accel_data, gyro_data):
+        """
+        Update orientation estimate using accelerometer and gyroscope data
+        """
+        # Get orientation from accelerometer (pitch and roll only)
+        accel_orientation = self.orientation_from_accel(accel_data)
+
+        # Integrate gyroscope data
+        gyro_orientation = self.integrate_gyro(gyro_data)
+
+        # Combine using complementary filter
+        # Convert to Euler angles for easy filtering
+        accel_euler = accel_orientation.as_euler('xyz')
+        current_euler = self.orientation.as_euler('xyz')
+        gyro_euler = current_euler + gyro_orientation * self.dt
+
+        # Apply complementary filter
+        filtered_euler = self.alpha * accel_euler + (1 - self.alpha) * gyro_euler
+
+        # Update orientation
+        self.orientation = R.from_euler('xyz', filtered_euler)
+
+        return self.orientation.as_quat()
+
+    def orientation_from_accel(self, accel_data):
+        """
+        Calculate orientation from accelerometer data (pitch and roll)
+        """
+        ax, ay, az = accel_data
+
+        # Calculate pitch and roll from accelerometer
+        pitch = np.arctan2(-ax, np.sqrt(ay**2 + az**2))
+        roll = np.arctan2(ay, az)
+
+        # Create rotation object (yaw from accelerometer is unreliable)
+        return R.from_euler('xyz', [roll, pitch, 0])
+
+    def integrate_gyro(self, gyro_data):
+        """
+        Integrate gyroscope data
+        """
+        return np.array(gyro_data)
+
+class IMUStateEstimator(Node):
+    def __init__(self):
+        super().__init__('imu_state_estimator')
+
+        self.subscription = self.create_subscription(
+            Imu,
+            '/imu/data',
+            self.imu_callback,
+            10)
+
+        self.filter = ComplementaryFilter()
+        self.last_time = None
+
+    def imu_callback(self, msg):
+        current_time = self.get_clock().now().nanoseconds / 1e9
+
+        if self.last_time is not None:
+            dt = current_time - self.last_time
+            if dt > 0:
+                # Update filter with new data
+                accel_data = [
+                    msg.linear_acceleration.x,
+                    msg.linear_acceleration.y,
+                    msg.linear_acceleration.z
+                ]
+
+                gyro_data = [
+                    msg.angular_velocity.x,
+                    msg.angular_velocity.y,
+                    msg.angular_velocity.z
+                ]
+
+                # Update complementary filter
+                estimated_orientation = self.filter.update(accel_data, gyro_data)
+
+                self.get_logger().info(f'Estimated orientation: {estimated_orientation}')
+
+        self.last_time = current_time
+```
+
+## IMU Data for Humanoid Balance Control
+
+```python
+import numpy as np
+from geometry_msgs.msg import Twist
+
+class BalanceController:
+    def __init__(self, kp=10.0, ki=1.0, kd=0.1):
+        self.kp = kp  # Proportional gain
+        self.ki = ki  # Integral gain
+        self.kd = kd  # Derivative gain
+
+        self.error_integral = 0.0
+        self.previous_error = 0.0
+        self.target_orientation = np.array([0.0, 0.0, 0.0])  # Target: upright
+        self.last_time = None
+
+    def compute_control(self, current_orientation, dt):
+        """
+        Compute balance control command using PID controller
+        """
+        current_time = self.get_clock().now().nanoseconds / 1e9
+        if self.last_time is None:
+            dt = 0.01  # Default time step
+        else:
+            dt = current_time - self.last_time
+
+        self.last_time = current_time
+
+        # Calculate error (difference from target orientation)
+        error = self.target_orientation - current_orientation[:2]  # Only pitch and roll
+
+        # Update integral
+        self.error_integral += error * dt
+
+        # Calculate derivative
+        if dt > 0:
+            error_derivative = (error - self.previous_error) / dt
+        else:
+            error_derivative = np.zeros_like(error)
+
+        # PID control
+        control_output = (self.kp * error +
+                         self.ki * self.error_integral +
+                         self.kd * error_derivative)
+
+        self.previous_error = error
+
+        return control_output
+
+class HumanoidBalanceNode(Node):
+    def __init__(self):
+        super().__init__('humanoid_balance_controller')
+
+        self.subscription = self.create_subscription(
+            Imu,
+            '/imu/data',
+            self.imu_callback,
+            10)
+
+        self.motor_pub = self.create_publisher(
+            Twist,
+            '/balance_control',
+            10)
+
+        self.balance_controller = BalanceController()
+
+    def imu_callback(self, msg):
+        # Extract orientation from IMU
+        quaternion = [msg.orientation.x, msg.orientation.y,
+                     msg.orientation.z, msg.orientation.w]
+        r = R.from_quat(quaternion)
+        euler = r.as_euler('xyz', degrees=True)
+
+        # Get pitch and roll (for humanoid balance)
+        current_orientation = np.array([euler[0], euler[1]])  # Roll, Pitch
+
+        # Compute balance control
+        control_output = self.balance_controller.compute_control(current_orientation, 0.01)
+
+        # Create and publish control command
+        control_msg = Twist()
+        control_msg.angular.x = float(control_output[0])  # Roll correction
+        control_msg.angular.y = float(control_output[1])  # Pitch correction
+
+        self.motor_pub.publish(control_msg)
+
+        self.get_logger().info(f'Balance control - Roll: {control_output[0]:.2f}, Pitch: {control_output[1]:.2f}')
+```
+
+## Unity IMU Simulation
+
+In Unity, you can simulate IMU data using physics and transforms:
+
+```csharp
+using UnityEngine;
+
+public class UnityIMUSimulator : MonoBehaviour
+{
+    [Header("IMU Settings")]
+    public float noiseLevel = 0.01f;
+    public float driftRate = 0.001f;
+
+    private Rigidbody rb;
+    private Vector3 lastAngularVelocity;
+    private Vector3 driftOffset = Vector3.zero;
+
+    [Header("Output")]
+    public float linearAccelerationX;
+    public float linearAccelerationY;
+    public float linearAccelerationZ;
+    public float angularVelocityX;
+    public float angularVelocityY;
+    public float angularVelocityZ;
+
+    void Start()
+    {
+        rb = GetComponent<Rigidbody>();
+        if (rb == null)
+        {
+            Debug.LogError("Rigidbody component is required for IMU simulation");
+        }
+    }
+
+    void Update()
+    {
+        if (rb != null)
+        {
+            // Calculate linear acceleration (includes gravity)
+            Vector3 linearAcceleration = rb.velocity / Time.fixedDeltaTime;
+            linearAcceleration += Physics.gravity; // Add gravity
+
+            // Add noise to acceleration
+            linearAcceleration += GenerateNoise() * noiseLevel;
+
+            // Store for output
+            linearAccelerationX = linearAcceleration.x;
+            linearAccelerationY = linearAcceleration.y;
+            linearAccelerationZ = linearAcceleration.z;
+
+            // Calculate angular velocity
+            Vector3 angularVelocity = rb.angularVelocity;
+
+            // Add drift over time
+            driftOffset += Random.insideUnitSphere * driftRate * Time.deltaTime;
+            angularVelocity += driftOffset;
+
+            // Add noise to angular velocity
+            angularVelocity += GenerateNoise() * noiseLevel;
+
+            // Store for output
+            angularVelocityX = angularVelocity.x;
+            angularVelocityY = angularVelocity.y;
+            angularVelocityZ = angularVelocity.z;
+
+            lastAngularVelocity = rb.angularVelocity;
+        }
+    }
+
+    Vector3 GenerateNoise()
+    {
+        return new Vector3(
+            Random.Range(-1f, 1f),
+            Random.Range(-1f, 1f),
+            Random.Range(-1f, 1f)
+        );
+    }
+
+    public Vector3 GetLinearAcceleration()
+    {
+        return new Vector3(linearAccelerationX, linearAccelerationY, linearAccelerationZ);
+    }
+
+    public Vector3 GetAngularVelocity()
+    {
+        return new Vector3(angularVelocityX, angularVelocityY, angularVelocityZ);
+    }
+}
+```
+
+## IMU Data Validation and Calibration
+
+```python
+def validate_imu_data(imu_msg):
+    """
+    Validate IMU data for common issues
+    """
+    # Check for NaN values
+    if (not np.isfinite(imu_msg.linear_acceleration.x) or
+        not np.isfinite(imu_msg.linear_acceleration.y) or
+        not np.isfinite(imu_msg.linear_acceleration.z)):
+        print("Warning: NaN or infinite values in linear acceleration")
+        return False
+
+    if (not np.isfinite(imu_msg.angular_velocity.x) or
+        not np.isfinite(imu_msg.angular_velocity.y) or
+        not np.isfinite(imu_msg.angular_velocity.z)):
+        print("Warning: NaN or infinite values in angular velocity")
+        return False
+
+    # Check for realistic values
+    max_accel = 100.0  # m/s^2 (10g)
+    max_gyro = 3.14   # rad/s (180 deg/s)
+
+    if (abs(imu_msg.linear_acceleration.x) > max_accel or
+        abs(imu_msg.linear_acceleration.y) > max_accel or
+        abs(imu_msg.linear_acceleration.z) > max_accel):
+        print("Warning: Acceleration values seem unrealistic")
+        return False
+
+    if (abs(imu_msg.angular_velocity.x) > max_gyro or
+        abs(imu_msg.angular_velocity.y) > max_gyro or
+        abs(imu_msg.angular_velocity.z) > max_gyro):
+        print("Warning: Angular velocity values seem unrealistic")
+        return False
+
+    # Check orientation quaternion normalization
+    quat_norm = (imu_msg.orientation.x**2 +
+                imu_msg.orientation.y**2 +
+                imu_msg.orientation.z**2 +
+                imu_msg.orientation.w**2)
+
+    if abs(quat_norm - 1.0) > 0.1:
+        print(f"Warning: Quaternion not normalized: {quat_norm}")
+        return False
+
+    return True
+```
+
+## Best Practices for IMU Simulation
+
+1. **Realistic Noise Models**: Include appropriate noise, bias, and drift characteristics
+2. **Proper Calibration**: Simulate calibration procedures and parameters
+3. **Validation**: Check data ranges and physical plausibility
+4. **Multi-sensor Fusion**: Combine IMU data with other sensors for better accuracy
+5. **Performance**: Balance simulation accuracy with computational efficiency
+
+## Summary
+
+IMU simulation is crucial for humanoid robotics, providing essential information about orientation, acceleration, and angular velocity. Properly simulated IMU data enables the development of balance control systems, navigation algorithms, and other critical robot behaviors. The combination of realistic noise models, proper filtering techniques, and validation ensures that simulation results translate well to real-world applications.

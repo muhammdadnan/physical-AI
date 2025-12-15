@@ -1,0 +1,550 @@
+---
+title: Introduction to Isaac ROS
+---
+
+# Introduction to Isaac ROS
+
+## Overview of Isaac ROS
+
+Isaac ROS is NVIDIA's collection of GPU-accelerated ROS 2 packages designed specifically for robotics perception, navigation, and manipulation. These packages leverage NVIDIA's GPU computing capabilities to provide high-performance processing for robotics applications, making them ideal for humanoid robots that require real-time perception and decision-making.
+
+## Isaac ROS Architecture
+
+### Core Components
+
+Isaac ROS consists of several key components that work together to provide GPU-accelerated robotics capabilities:
+
+1. **Perception Pipeline**: Vision processing, depth estimation, and object detection
+2. **Navigation Stack**: GPU-accelerated SLAM, path planning, and obstacle avoidance
+3. **Manipulation Tools**: GPU-accelerated inverse kinematics and motion planning
+4. **Hardware Abstraction**: Drivers for NVIDIA hardware and sensors
+
+### Isaac ROS vs Traditional ROS
+
+| Aspect | Traditional ROS | Isaac ROS |
+|--------|----------------|-----------|
+| Processing | CPU-based | GPU-accelerated |
+| Performance | Standard | High-performance |
+| Hardware | Any compatible | NVIDIA GPU required |
+| Use Cases | General robotics | AI-driven robotics |
+
+## Installation and Setup
+
+### System Requirements
+
+- **GPU**: NVIDIA GPU with compute capability 6.0+ (RTX 20xx/30xx series recommended)
+- **CUDA**: 11.8 or later
+- **OS**: Ubuntu 20.04/22.04 or Windows with WSL2
+- **ROS 2**: Humble Hawksbill
+
+### Installation Process
+
+#### Ubuntu Installation
+
+```bash
+# Add NVIDIA package repository
+wget https://repo.download.nvidia.com/download.php?files=NVIDIA-ISAAC-ROS-RELEASE-PUBLIC.PKG.APT&filename=NVIDIA-ISAAC-ROS-RELEASE-PUBLIC.PKG.APT
+sudo apt-key add download.php\?files\=NVIDIA-ISAAC-ROS-RELEASE-PUBLIC.PKG.APT\&filename\=NVIDIA-ISAAC-ROS-RELEASE-PUBLIC.PKG.APT
+rm download.php\?files\=NVIDIA-ISAAC-ROS-RELEASE-PUBLIC.PKG.APT\&filename\=NVIDIA-ISAAC-ROS-RELEASE-PUBLIC.PKG.APT
+
+# Add repository
+echo "deb https://repo.download.nvidia.com/ /" | sudo tee /etc/apt/sources.list.d/nvidia-isaa-ros.list
+
+# Update package list
+sudo apt update
+
+# Install Isaac ROS packages
+sudo apt install ros-humble-isaac-ros-gems ros-humble-isaac-ros-common ros-humble-isaac-ros-apriltag ros-humble-isaac-ros-visual-slam
+```
+
+#### Verification
+
+```bash
+# Check installed packages
+dpkg -l | grep isaac-ros
+
+# Verify GPU access
+nvidia-smi
+
+# Test basic functionality
+ros2 run isaac_ros_apriltag apriltag_node
+```
+
+## Isaac ROS Pipeline Setup
+
+### Basic Pipeline Example
+
+```python
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image, CameraInfo
+from cv_bridge import CvBridge
+import cv2
+import numpy as np
+
+class IsaacROSPipeline(Node):
+    def __init__(self):
+        super().__init__('isaac_ros_pipeline')
+        self.bridge = CvBridge()
+
+        # Input topics
+        self.image_sub = self.create_subscription(
+            Image,
+            '/camera/image_raw',
+            self.image_callback,
+            10)
+
+        self.camera_info_sub = self.create_subscription(
+            CameraInfo,
+            '/camera/camera_info',
+            self.camera_info_callback,
+            10)
+
+        # Output topics
+        self.processed_pub = self.create_publisher(
+            Image,
+            '/camera/processed',
+            10)
+
+        self.feature_pub = self.create_publisher(
+            # Custom message for features
+            'isaac_ros_interfaces/msg/Features',
+            '/features',
+            10)
+
+        self.camera_info = None
+
+    def image_callback(self, msg):
+        """Process incoming image with GPU acceleration"""
+        try:
+            # Convert ROS image to OpenCV
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+
+            # GPU-accelerated processing would go here
+            processed_image = self.gpu_process_image(cv_image)
+
+            # Convert back to ROS message
+            processed_msg = self.bridge.cv2_to_imgmsg(processed_image, "bgr8")
+            processed_msg.header = msg.header
+            self.processed_pub.publish(processed_msg)
+
+        except Exception as e:
+            self.get_logger().error(f'Error processing image: {e}')
+
+    def gpu_process_image(self, image):
+        """
+        Placeholder for GPU-accelerated image processing
+        In practice, this would use Isaac ROS packages like:
+        - Isaac ROS Visual Slam
+        - Isaac ROS Stereo Dense Reconstruction
+        - Isaac ROS Apriltag
+        """
+        # Simulate some processing
+        gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        # Apply GPU-accelerated operations here
+        return cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+
+    def camera_info_callback(self, msg):
+        """Store camera calibration information"""
+        self.camera_info = msg
+
+def main(args=None):
+    rclpy.init(args=args)
+    pipeline = IsaacROSPipeline()
+
+    try:
+        rclpy.spin(pipeline)
+    except KeyboardInterrupt:
+        pass
+    finally:
+        pipeline.destroy_node()
+        rclpy.shutdown()
+
+if __name__ == '__main__':
+    main()
+```
+
+## Isaac ROS Perception Packages
+
+### Visual SLAM (VSLAM)
+
+Visual SLAM is a key component of Isaac ROS for building 3D maps and localizing robots:
+
+```python
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image, Imu
+from geometry_msgs.msg import PoseStamped
+from nav_msgs.msg import Odometry
+import message_filters
+
+class IsaacROSVisualSLAMNode(Node):
+    def __init__(self):
+        super().__init__('isaac_ros_vslam')
+
+        # Synchronize image and IMU data
+        self.image_sub = message_filters.Subscriber(self, Image, '/camera/image_raw')
+        self.imu_sub = message_filters.Subscriber(self, Imu, '/imu/data')
+
+        # Approximate time synchronization
+        self.sync = message_filters.ApproximateTimeSynchronizer(
+            [self.image_sub, self.imu_sub],
+            queue_size=10,
+            slop=0.1
+        )
+        self.sync.registerCallback(self.vslam_callback)
+
+        # Publishers for SLAM results
+        self.pose_pub = self.create_publisher(PoseStamped, '/visual_slam/pose', 10)
+        self.odom_pub = self.create_publisher(Odometry, '/visual_slam/odometry', 10)
+        self.map_pub = self.create_publisher( # OccupancyGrid or PointCloud2
+            'nav_msgs/msg/OccupancyGrid',
+            '/visual_slam/map',
+            10
+        )
+
+    def vslam_callback(self, image_msg, imu_msg):
+        """
+        Process synchronized image and IMU data for VSLAM
+        """
+        # This would interface with Isaac ROS Visual SLAM package
+        # which runs on GPU for real-time performance
+        pass
+
+def launch_visual_slam():
+    """
+    Launch configuration for Isaac ROS Visual SLAM
+    """
+    # This would typically be in a launch file
+    from launch import LaunchDescription
+    from launch_ros.actions import Node
+    from launch.actions import DeclareLaunchArgument
+    from launch.substitutions import LaunchConfiguration
+
+    def generate_launch_description():
+        return LaunchDescription([
+            # Isaac ROS Visual SLAM node
+            Node(
+                package='isaac_ros_visual_slam',
+                executable='visual_slam_node',
+                name='visual_slam',
+                parameters=[{
+                    'enable_rectified_pose': True,
+                    'map_frame': 'map',
+                    'odometry_frame': 'odom',
+                    'base_frame': 'base_link',
+                    'enable_fisheye': False,
+                    'calibration_file': '/path/to/camera/calibration.yaml'
+                }],
+                remappings=[
+                    ('/visual_slam/image', '/camera/image_raw'),
+                    ('/visual_slam/camera_info', '/camera/camera_info'),
+                    ('/visual_slam/imu', '/imu/data')
+                ]
+            )
+        ])
+```
+
+### Stereo Dense Reconstruction
+
+```python
+class IsaacROSReconstructionNode(Node):
+    def __init__(self):
+        super().__init__('isaac_ros_reconstruction')
+
+        # Stereo camera inputs
+        self.left_sub = message_filters.Subscriber(self, Image, '/stereo/left/image_rect')
+        self.right_sub = message_filters.Subscriber(self, Image, '/stereo/right/image_rect')
+        self.left_info_sub = message_filters.Subscriber(self, CameraInfo, '/stereo/left/camera_info')
+        self.right_info_sub = message_filters.Subscriber(self, CameraInfo, '/stereo/right/camera_info')
+
+        # Synchronize stereo pair
+        self.stereo_sync = message_filters.ApproximateTimeSynchronizer(
+            [self.left_sub, self.right_sub, self.left_info_sub, self.right_info_sub],
+            queue_size=10,
+            slop=0.1
+        )
+        self.stereo_sync.registerCallback(self.stereo_callback)
+
+        # Point cloud output
+        self.pc_pub = self.create_publisher(
+            'sensor_msgs/msg/PointCloud2',
+            '/reconstruction/pointcloud',
+            10
+        )
+
+    def stereo_callback(self, left_msg, right_msg, left_info, right_info):
+        """
+        Process stereo images for 3D reconstruction
+        """
+        # GPU-accelerated stereo processing
+        # This would use Isaac ROS Stereo Dense Reconstruction package
+        pass
+```
+
+### AprilTag Detection
+
+```python
+class IsaacROSAprilTagNode(Node):
+    def __init__(self):
+        super().__init__('isaac_ros_apriltag')
+
+        # Input image
+        self.image_sub = self.create_subscription(
+            Image,
+            '/camera/image_raw',
+            self.image_callback,
+            10
+        )
+
+        # AprilTag detections
+        self.detection_pub = self.create_publisher(
+            # Custom AprilTag detection message
+            'isaac_ros_apriltag_interfaces/msg/AprilTagDetectionArray',
+            '/apriltag/detections',
+            10
+        )
+
+    def image_callback(self, msg):
+        """
+        Detect AprilTags in input image using GPU acceleration
+        """
+        # This would interface with Isaac ROS AprilTag package
+        # which provides GPU-accelerated AprilTag detection
+        pass
+```
+
+## GPU-Accelerated ROS Nodes
+
+### Creating Custom GPU-Accelerated Nodes
+
+```python
+import rclpy
+from rclpy.node import Node
+from sensor_msgs.msg import Image
+from cv_bridge import CvBridge
+import cupy as cp  # CUDA Python
+import numpy as np
+
+class GPUPipelineNode(Node):
+    def __init__(self):
+        super().__init__('gpu_pipeline_node')
+        self.bridge = CvBridge()
+
+        # Input and output
+        self.image_sub = self.create_subscription(
+            Image,
+            '/input/image',
+            self.gpu_process_callback,
+            10
+        )
+
+        self.result_pub = self.create_publisher(
+            Image,
+            '/output/image',
+            10
+        )
+
+    def gpu_process_callback(self, msg):
+        """
+        Process image using GPU acceleration
+        """
+        try:
+            # Convert ROS image to numpy
+            cv_image = self.bridge.imgmsg_to_cv2(msg, "bgr8")
+            numpy_image = np.array(cv_image)
+
+            # Transfer to GPU
+            gpu_image = cp.asarray(numpy_image)
+
+            # Perform GPU-accelerated operations
+            processed_gpu = self.gpu_operations(gpu_image)
+
+            # Transfer back to CPU
+            processed_cpu = cp.asnumpy(processed_gpu)
+
+            # Convert back to ROS message
+            result_msg = self.bridge.cv2_to_imgmsg(processed_cpu, "bgr8")
+            result_msg.header = msg.header
+            self.result_pub.publish(result_msg)
+
+        except Exception as e:
+            self.get_logger().error(f'GPU processing error: {e}')
+
+    def gpu_operations(self, gpu_image):
+        """
+        Perform GPU-accelerated image processing
+        """
+        # Example: Apply a filter using CuPy
+        # In practice, you'd use Isaac ROS packages for complex operations
+        return cp.flip(gpu_image, axis=1)  # Example operation
+```
+
+## Isaac ROS Launch Files
+
+### Complete Launch Configuration
+
+```xml
+<!-- isaac_ros_pipeline.launch.py -->
+from launch import LaunchDescription
+from launch_ros.actions import Node
+from launch.actions import DeclareLaunchArgument
+from launch.substitutions import LaunchConfiguration
+from ament_index_python.packages import get_package_share_directory
+import os
+
+def generate_launch_description():
+    # Declare launch arguments
+    use_sim_time = LaunchConfiguration('use_sim_time', default='false')
+
+    # Isaac ROS Visual SLAM node
+    visual_slam_node = Node(
+        package='isaac_ros_visual_slam',
+        executable='visual_slam_node',
+        name='visual_slam',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'enable_rectified_pose': True,
+            'map_frame': 'map',
+            'odometry_frame': 'odom',
+            'base_frame': 'base_link',
+            'enable_occupancy_map': True,
+            'occupancy_map_topic_name': '/slam_map'
+        }],
+        remappings=[
+            ('/visual_slam/image', '/camera/image_rect'),
+            ('/visual_slam/camera_info', '/camera/camera_info'),
+            ('/visual_slam/imu', '/imu/data')
+        ]
+    )
+
+    # Isaac ROS Image Proc for rectification
+    image_proc_node = Node(
+        package='isaac_ros_image_proc',
+        executable='image_format_converter_node',
+        name='image_format_converter',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'input_encoding': 'rgb8',
+            'output_encoding': 'rgba8'
+        }],
+        remappings=[
+            ('image_raw', '/camera/image_raw'),
+            ('image', '/camera/image_rect')
+        ]
+    )
+
+    # Isaac ROS AprilTag detector
+    apriltag_node = Node(
+        package='isaac_ros_apriltag',
+        executable='apriltag_node',
+        name='apriltag',
+        parameters=[{
+            'use_sim_time': use_sim_time,
+            'family': 'tag36h11',
+            'max_hamming': 3,
+            'quad_decimate': 2.0,
+            'quad_sigma': 0.0
+        }],
+        remappings=[
+            ('image', '/camera/image_rect'),
+            ('camera_info', '/camera/camera_info')
+        ]
+    )
+
+    return LaunchDescription([
+        image_proc_node,
+        visual_slam_node,
+        apriltag_node
+    ])
+```
+
+## Performance Optimization
+
+### GPU Memory Management
+
+```python
+import rclpy
+from rclpy.node import Node
+import cupy as cp
+
+class OptimizedGPUNode(Node):
+    def __init__(self):
+        super().__init__('optimized_gpu_node')
+
+        # Pre-allocate GPU memory pools
+        self.gpu_memory_pool = cp.cuda.MemoryPool()
+        cp.cuda.set_allocator(self.gpu_memory_pool.malloc)
+
+        # Set memory limit to prevent out-of-memory errors
+        self.gpu_memory_pool.set_limit(size=cp.cuda.Device().mem_info[0] * 0.8)
+
+    def cleanup_gpu_memory(self):
+        """Clean up GPU memory"""
+        cp.get_default_memory_pool().free_all_blocks()
+        cp.get_default_pinned_memory_pool().free_all_blocks()
+```
+
+## Troubleshooting Isaac ROS
+
+### Common Issues and Solutions
+
+1. **GPU Not Detected**:
+   - Verify NVIDIA drivers are installed: `nvidia-smi`
+   - Check CUDA installation: `nvcc --version`
+   - Ensure Isaac ROS packages are built with GPU support
+
+2. **Performance Issues**:
+   - Monitor GPU utilization: `nvidia-smi`
+   - Check for memory bottlenecks
+   - Optimize data transfer between CPU and GPU
+
+3. **ROS Communication Issues**:
+   - Verify topic remappings
+   - Check message synchronization
+   - Monitor network bandwidth for remote operations
+
+### Performance Monitoring
+
+```python
+class IsaacROSPerformanceMonitor(Node):
+    def __init__(self):
+        super().__init__('performance_monitor')
+
+        # Timer for periodic monitoring
+        self.timer = self.create_timer(1.0, self.monitor_performance)
+
+        # Performance metrics
+        self.processing_times = []
+        self.gpu_utilization = []
+
+    def monitor_performance(self):
+        """Monitor and log performance metrics"""
+        import subprocess
+
+        try:
+            # Get GPU utilization
+            result = subprocess.run(['nvidia-smi', '--query-gpu=utilization.gpu', '--format=csv,noheader,nounits'],
+                                  capture_output=True, text=True)
+            gpu_util = int(result.stdout.strip())
+
+            self.get_logger().info(f'GPU Utilization: {gpu_util}%')
+
+            # Log other performance metrics
+            # Memory usage, processing times, etc.
+
+        except Exception as e:
+            self.get_logger().error(f'Performance monitoring error: {e}')
+```
+
+## Best Practices
+
+1. **Memory Management**: Properly manage GPU memory to avoid leaks
+2. **Data Pipeline**: Optimize data flow between CPU and GPU
+3. **Synchronization**: Properly synchronize GPU operations
+4. **Error Handling**: Implement robust error handling for GPU operations
+5. **Performance Monitoring**: Continuously monitor performance metrics
+
+## Summary
+
+Isaac ROS provides powerful GPU-accelerated capabilities for robotics applications, enabling real-time processing of perception, navigation, and manipulation tasks. By leveraging NVIDIA's GPU computing platform, Isaac ROS delivers significant performance improvements over traditional CPU-based approaches, making it ideal for demanding humanoid robotics applications that require real-time perception and decision-making.

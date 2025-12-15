@@ -1,0 +1,282 @@
+# LLM Cognitive Planning
+
+Large Language Models (LLMs) serve as the cognitive engine in VLA systems, transforming high-level goals into executable action sequences. This chapter explores how to leverage LLMs for intelligent task decomposition and planning.
+
+## Understanding Cognitive Planning
+
+Cognitive planning in robotics involves breaking down complex, high-level goals into sequences of executable actions. For example, the command "Clean the room" might decompose into:
+1. Navigate to the first object
+2. Identify the object type
+3. Pick up the object if it's trash
+4. Navigate to disposal location
+5. Place the object in disposal
+6. Repeat for all trash objects
+
+## LLM-Based Task Decomposition
+
+LLMs excel at understanding natural language and can be prompted to generate structured action plans. Here's a basic approach:
+
+```python
+import openai
+import json
+
+def decompose_task_with_llm(goal: str, context: str = "") -> dict:
+    """
+    Use an LLM to decompose a high-level goal into executable sub-tasks
+    """
+    prompt = f"""
+    You are a robot task planner. Decompose the following high-level goal into specific, executable sub-tasks.
+    Consider the robot's capabilities and the environment context.
+
+    Goal: {goal}
+    Context: {context}
+
+    Return a JSON object with the following structure:
+    {{
+        "goal": "original goal",
+        "sub_tasks": [
+            {{
+                "action": "action_type",
+                "parameters": {{"param1": "value1", ...}},
+                "description": "human-readable description"
+            }}
+        ]
+    }}
+
+    Example:
+    Goal: "Pick up the red cup and put it on the table"
+    Response: {{
+        "goal": "Pick up the red cup and put it on the table",
+        "sub_tasks": [
+            {{
+                "action": "locate_object",
+                "parameters": {{"object_type": "cup", "color": "red"}},
+                "description": "Find the red cup in the environment"
+            }},
+            {{
+                "action": "navigate_to",
+                "parameters": {{"target": "red_cup_location"}},
+                "description": "Move to the location of the red cup"
+            }},
+            {{
+                "action": "grasp_object",
+                "parameters": {{"object_id": "red_cup", "grasp_type": "top"}},
+                "description": "Pick up the red cup"
+            }},
+            {{
+                "action": "navigate_to",
+                "parameters": {{"target": "table_location"}},
+                "description": "Move to the table"
+            }},
+            {{
+                "action": "place_object",
+                "parameters": {{"object_id": "red_cup", "location": "table"}},
+                "description": "Place the red cup on the table"
+            }}
+        ]
+    }}
+    """
+
+    response = openai.ChatCompletion.create(
+        model="gpt-4-turbo",
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0.1,  # Low temperature for consistent, structured output
+        max_tokens=1000
+    )
+
+    try:
+        # Extract JSON from response
+        content = response.choices[0].message.content
+        # Look for JSON between ```json and ``` or just parse the whole content
+        if "```json" in content:
+            import re
+            json_match = re.search(r'```json\n(.*?)\n```', content, re.DOTALL)
+            if json_match:
+                content = json_match.group(1)
+
+        plan = json.loads(content)
+        return plan
+    except json.JSONDecodeError:
+        raise ValueError(f"LLM did not return valid JSON: {content}")
+```
+
+## Planning with Context and Constraints
+
+Effective planning requires considering environmental context and robot constraints:
+
+```python
+class LLMPlanner:
+    def __init__(self, model="gpt-4-turbo"):
+        self.model = model
+
+    def create_plan(self, goal: str, environment_context: dict, robot_capabilities: dict) -> dict:
+        """
+        Create a detailed plan considering environment and robot capabilities
+        """
+        prompt = f"""
+        You are an advanced robot task planner. Create a detailed action plan for the robot.
+
+        GOAL: {goal}
+
+        ENVIRONMENT CONTEXT:
+        {json.dumps(environment_context, indent=2)}
+
+        ROBOT CAPABILITIES:
+        {json.dumps(robot_capabilities, indent=2)}
+
+        Requirements:
+        1. Consider physical constraints (weight limits, reach, etc.)
+        2. Account for environmental obstacles
+        3. Include safety checks
+        4. Plan for error recovery
+        5. Generate executable actions for ROS 2
+
+        Return a structured JSON plan with sub-tasks.
+        """
+
+        response = openai.ChatCompletion.create(
+            model=self.model,
+            messages=[
+                {"role": "system", "content": "You are an expert robot task planner. Always return valid JSON."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.1,
+            max_tokens=1500
+        )
+
+        plan = self._extract_json_from_response(response.choices[0].message.content)
+        return self._validate_plan(plan)
+
+    def _extract_json_from_response(self, content: str) -> dict:
+        """Extract JSON from LLM response"""
+        import re
+        # Try to find JSON in the response
+        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+        if json_match:
+            return json.loads(json_match.group())
+        else:
+            raise ValueError(f"Could not extract JSON from response: {content}")
+
+    def _validate_plan(self, plan: dict) -> dict:
+        """Validate the plan structure and content"""
+        required_fields = ["goal", "sub_tasks"]
+        for field in required_fields:
+            if field not in plan:
+                raise ValueError(f"Plan missing required field: {field}")
+
+        for i, task in enumerate(plan["sub_tasks"]):
+            if "action" not in task:
+                raise ValueError(f"Sub-task {i} missing 'action' field")
+
+        return plan
+```
+
+## Safety and Grounding Considerations
+
+LLMs can generate unrealistic or unsafe plans. Implement safety checks:
+
+```python
+def validate_plan_safety(plan: dict, robot_specifications: dict) -> tuple[bool, list]:
+    """
+    Validate a plan for safety and feasibility
+    """
+    issues = []
+
+    for i, task in enumerate(plan["sub_tasks"]):
+        action = task["action"]
+        params = task.get("parameters", {})
+
+        # Check weight constraints for manipulation tasks
+        if action == "grasp_object" and "weight" in params:
+            if params["weight"] > robot_specifications["max_grasp_weight"]:
+                issues.append(f"Task {i}: Object too heavy to grasp ({params['weight']}kg > {robot_specifications['max_grasp_weight']}kg)")
+
+        # Check navigation feasibility
+        if action == "navigate_to" and "target" in params:
+            # In a real system, check if target is reachable
+            pass
+
+        # Check for impossible actions
+        if action not in robot_specifications["supported_actions"]:
+            issues.append(f"Task {i}: Robot does not support action '{action}'")
+
+    return len(issues) == 0, issues
+```
+
+## Planning with Feedback Integration
+
+For robust execution, plans should include feedback mechanisms:
+
+```python
+def create_feedback_aware_plan(goal: str) -> dict:
+    """
+    Create a plan that includes feedback checks and recovery procedures
+    """
+    base_plan = decompose_task_with_llm(goal)
+
+    # Add feedback and recovery steps to each sub-task
+    enhanced_plan = {
+        "goal": base_plan["goal"],
+        "sub_tasks": []
+    }
+
+    for task in base_plan["sub_tasks"]:
+        # Add success check after each action
+        enhanced_plan["sub_tasks"].append(task)
+
+        # Add success verification
+        enhanced_plan["sub_tasks"].append({
+            "action": "verify_action_success",
+            "parameters": {"previous_action": task["action"]},
+            "description": f"Verify that {task['action']} was successful"
+        })
+
+        # Add recovery if needed
+        enhanced_plan["sub_tasks"].append({
+            "action": "conditional_recovery",
+            "parameters": {
+                "condition": "action_failed",
+                "recovery_plan": ["retry_action", "alternative_approach", "request_help"]
+            },
+            "description": f"Recover if {task['action']} failed"
+        })
+
+    return enhanced_plan
+```
+
+## Planning Examples
+
+Here are examples of different types of plans:
+
+### Simple Navigation
+```
+Goal: "Go to the kitchen"
+Plan: [
+  {"action": "get_map_location", "parameters": {"location": "kitchen"}},
+  {"action": "navigate_to", "parameters": {"target": "kitchen_coordinates"}}
+]
+```
+
+### Object Manipulation
+```
+Goal: "Bring me the blue bottle from the table"
+Plan: [
+  {"action": "locate_object", "parameters": {"object": "bottle", "color": "blue", "location": "table"}},
+  {"action": "navigate_to", "parameters": {"target": "bottle_location"}},
+  {"action": "grasp_object", "parameters": {"object_id": "blue_bottle"}},
+  {"action": "navigate_to", "parameters": {"target": "user_location"}},
+  {"action": "place_object", "parameters": {"location": "delivery_position"}}
+]
+```
+
+### Complex Multi-Step
+```
+Goal: "Set the table for dinner"
+Plan: [
+  {"action": "locate_object", "parameters": {"object": "plate", "count": 4}},
+  {"action": "navigate_to", "parameters": {"target": "plate_location"}},
+  # ... repeat for each item: plates, forks, knives, glasses
+]
+```
+
+In the next section, we'll implement the actual LLM planning service that will generate these plans dynamically based on user commands.

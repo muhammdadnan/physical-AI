@@ -1,0 +1,154 @@
+# Whisper Setup and Integration
+
+This chapter covers setting up OpenAI Whisper for speech-to-text conversion in the VLA system. Whisper enables robots to understand voice commands and convert them to text that can be processed by the LLM planning system.
+
+## Introduction to Whisper
+
+OpenAI Whisper is a state-of-the-art speech recognition model that can transcribe audio to text with high accuracy. In the VLA system, Whisper serves as the bridge between human voice commands and robot understanding.
+
+## Prerequisites
+
+Before implementing Whisper integration, ensure you have:
+- An OpenAI API key
+- Audio input capabilities (microphone)
+- Understanding of audio formats and processing
+
+## Setting Up Whisper API
+
+### Configuration
+
+First, configure your OpenAI API key in the environment variables:
+
+```bash
+OPENAI_API_KEY=your_openai_api_key_here
+```
+
+### Basic Whisper Integration
+
+Here's a simple example of how to use Whisper for speech-to-text conversion:
+
+```python
+import openai
+
+# Configure OpenAI
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
+# Transcribe audio file
+with open("voice_command.wav", "rb") as audio_file:
+    transcript = openai.Audio.transcribe("whisper-1", audio_file)
+
+print(f"Transcribed text: {transcript.text}")
+```
+
+## Streaming Audio Input
+
+For real-time voice command processing, implement streaming audio input:
+
+```python
+import pyaudio
+import wave
+import openai
+import asyncio
+
+class StreamingWhisperClient:
+    def __init__(self):
+        self.chunk = 1024
+        self.format = pyaudio.paInt16
+        self.channels = 1
+        self.rate = 44100
+        self.record_seconds = 5
+
+    async def record_and_transcribe(self):
+        audio = pyaudio.PyAudio()
+
+        # Start recording
+        stream = audio.open(format=self.format,
+                           channels=self.channels,
+                           rate=self.rate,
+                           input=True,
+                           frames_per_buffer=self.chunk)
+
+        print("Recording...")
+        frames = []
+
+        for i in range(0, int(self.rate / self.chunk * self.record_seconds)):
+            data = stream.read(self.chunk)
+            frames.append(data)
+
+        print("Finished recording")
+
+        # Stop and close the stream
+        stream.stop_stream()
+        stream.close()
+        audio.terminate()
+
+        # Save to temporary file for Whisper processing
+        filename = "temp_recording.wav"
+        wf = wave.open(filename, 'wb')
+        wf.setnchannels(self.channels)
+        wf.setsampwidth(audio.get_sample_size(self.format))
+        wf.setframerate(self.rate)
+        wf.writeframes(b''.join(frames))
+        wf.close()
+
+        # Transcribe the audio
+        with open(filename, "rb") as audio_file:
+            transcript = openai.Audio.transcribe("whisper-1", audio_file)
+
+        return transcript.text
+```
+
+## Whisper in the VLA Pipeline
+
+In the complete VLA system, Whisper integrates as follows:
+
+1. Voice command is captured from the user
+2. Audio is processed and sent to Whisper API
+3. Transcribed text is passed to the LLM planning system
+4. LLM generates action sequence based on the command
+5. Actions are executed by the ROS 2 system
+
+## Error Handling and Confidence Scoring
+
+Whisper provides confidence scores for transcriptions. It's important to handle cases where the confidence is low:
+
+```python
+def process_voice_command(audio_data):
+    with open(audio_data, "rb") as audio_file:
+        transcript = openai.Audio.transcribe("whisper-1", audio_file,
+                                           response_format="verbose_json")
+
+    text = transcript.text
+    confidence = transcript.avg_logprob  # Average log probability as confidence measure
+
+    if confidence < -0.5:  # Threshold can be adjusted
+        return {
+            "success": False,
+            "error": "Low confidence in transcription",
+            "confidence": confidence
+        }
+
+    return {
+        "success": True,
+        "text": text,
+        "confidence": confidence
+    }
+```
+
+## Testing Whisper Integration
+
+To test your Whisper integration:
+
+1. Record a simple voice command (e.g., "Move forward")
+2. Process it through your Whisper client
+3. Verify the transcription accuracy
+4. Pass the text to your LLM planning system
+
+## Common Issues and Solutions
+
+- **Audio Quality**: Ensure good audio quality to improve transcription accuracy
+- **Background Noise**: Consider noise reduction techniques for better results
+- **Latency**: For real-time applications, consider the latency of API calls
+- **Cost**: Monitor API usage as Whisper usage is billed per minute of audio
+
+In the next section, we'll implement the complete voice-to-action pipeline with real-time processing.

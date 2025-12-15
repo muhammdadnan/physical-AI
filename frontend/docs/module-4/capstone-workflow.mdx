@@ -1,0 +1,641 @@
+# Capstone Workflow Examples: Complete Voice-to-Action Pipeline
+
+This chapter provides complete workflow examples for the autonomous humanoid capstone project, demonstrating how all VLA components integrate to execute complex voice-commanded tasks.
+
+## Complete End-to-End Workflows
+
+### Example 1: Room Service Assistant
+
+```python
+async def run_room_service_workflow():
+    """
+    Complete workflow: Humanoid robot acts as a room service assistant
+    """
+    # Initialize the capstone service
+    capstone_service = CapstoneService()
+
+    # Create a new capstone project for room service
+    project = await capstone_service.create_capstone_project(
+        name="Room Service Assistant",
+        description="Humanoid robot that responds to voice commands for room service tasks",
+        configuration={
+            "robot_type": "humanoid",
+            "capabilities": ["navigation", "manipulation", "perception", "voice_control"],
+            "environment": "hotel_room_office"
+        }
+    )
+
+    # Start a new session
+    session = await capstone_service.start_capstone_session(
+        project_id=project.id,
+        user_preferences={
+            "service_type": "room_service",
+            "priority": "normal",
+            "safety_thresholds": {"distance": 0.5, "force": 10.0}
+        }
+    )
+
+    print(f"Started room service session: {session.id}")
+
+    # Define a complex room service task
+    complex_command = "Go to the kitchen, get a glass of water, bring it to the person in the living room, and return to the charging station"
+
+    # Execute the task with full VLA integration
+    task_result = await capstone_service.execute_capstone_task(
+        session_id=session.id,
+        command=complex_command,
+        task_context={
+            "environment_map": "hotel_room_layout",
+            "user_location": "living_room_sofa",
+            "object_preferences": {"drink_type": "water", "container": "glass"}
+        }
+    )
+
+    print(f"Task completed: {task_result.success}")
+    print(f"Execution time: {task_result.execution_time} seconds")
+
+    # Get session analytics
+    analytics = await capstone_service.get_project_analytics(project.id)
+    print(f"Overall success rate: {analytics['overall_success_rate']:.2%}")
+
+    # End the session
+    await capstone_service.end_session(session.id)
+
+    return {
+        "project_id": project.id,
+        "session_id": session.id,
+        "task_result": task_result,
+        "analytics": analytics
+    }
+```
+
+### Example 2: Cleaning Assistant Workflow
+
+```python
+async def run_cleaning_assistant_workflow():
+    """
+    Complete workflow: Humanoid robot acts as a cleaning assistant
+    """
+    capstone_service = CapstoneService()
+
+    # Create cleaning assistant project
+    project = await capstone_service.create_capstone_project(
+        name="Cleaning Assistant",
+        description="Humanoid robot that responds to voice commands for cleaning tasks",
+        configuration={
+            "robot_type": "humanoid",
+            "capabilities": ["navigation", "manipulation", "perception", "voice_control"],
+            "environment": "office_space",
+            "tools": ["vacuum", "duster", "trash_bin"]
+        }
+    )
+
+    session = await capstone_service.start_capstone_session(
+        project_id=project.id,
+        user_preferences={
+            "cleaning_priority": "high_traffic_areas",
+            "time_constraint": "30_minutes",
+            "avoid_locations": ["server_room", "executive_office"]
+        }
+    )
+
+    # Multiple cleaning tasks in sequence
+    cleaning_tasks = [
+        "Clean the conference room table",
+        "Vacuum the main hallway",
+        "Empty all trash bins in the office area",
+        "Organize the break room counter"
+    ]
+
+    results = []
+    for i, task_command in enumerate(cleaning_tasks):
+        print(f"Executing cleaning task {i+1}/{len(cleaning_tasks)}: {task_command}")
+
+        task_result = await capstone_service.execute_capstone_task(
+            session_id=session.id,
+            command=task_command,
+            task_context={
+                "current_time": time.time(),
+                "previous_tasks": results[-3:],  # Last 3 tasks for context
+                "environment_changes": await get_environment_changes()  # Simulated
+            }
+        )
+
+        results.append({
+            "task": task_command,
+            "result": task_result,
+            "sequence_number": i+1
+        })
+
+        print(f"Task {i+1} completed: {task_result.success}")
+
+    # End session and return summary
+    await capstone_service.end_session(session.id)
+
+    summary = {
+        "project_id": project.id,
+        "session_id": session.id,
+        "total_tasks": len(cleaning_tasks),
+        "successful_tasks": sum(1 for r in results if r["result"].success),
+        "task_results": results
+    }
+
+    return summary
+
+async def get_environment_changes():
+    """
+    Simulated function to get environmental changes since last task
+    In a real implementation, this would interface with sensors
+    """
+    return {
+        "new_obstacles": [],
+        "object_movements": [],
+        "occupancy_changes": [],
+        "cleanliness_levels": {"conference_room": 0.7, "hallway": 0.4, "break_room": 0.6}
+    }
+```
+
+### Example 3: Adaptive Navigation and Delivery
+
+```python
+async def run_adaptive_delivery_workflow():
+    """
+    Complete workflow: Adaptive navigation and delivery with obstacle avoidance
+    """
+    capstone_service = CapstoneService()
+
+    # Create delivery project
+    project = await capstone_service.create_capstone_project(
+        name="Adaptive Delivery",
+        description="Humanoid robot that adapts navigation based on real-time obstacles",
+        configuration={
+            "robot_type": "humanoid",
+            "capabilities": ["navigation", "manipulation", "perception", "voice_control"],
+            "environment": "dynamic_office",
+            "delivery_type": "object_transport"
+        }
+    )
+
+    session = await capstone_service.start_capstone_session(
+        project_id=project.id,
+        user_preferences={
+            "delivery_speed": "balanced",  # "fast", "balanced", "safe"
+            "delivery_path_preference": "shortest",
+            "obstacle_tolerance": "high"
+        }
+    )
+
+    # Complex delivery task with potential for adaptive behavior
+    delivery_command = "Go to John's office, pick up the signed documents from his desk, deliver them to the conference room, and return within 15 minutes"
+
+    # Execute with camera data for real-time perception
+    task_result = await capstone_service.execute_capstone_task(
+        session_id=session.id,
+        command=delivery_command,
+        camera_data=get_current_camera_image(),  # Simulated
+        task_context={
+            "delivery_deadline": time.time() + 15*60,  # 15 minutes from now
+            "object_to_pickup": {"type": "documents", "description": "signed papers in blue folder"},
+            "delivery_destination": {"room": "conference_room", "location": "table_center"},
+            "real_time_obstacles": await get_dynamic_obstacles()  # Real-time obstacle data
+        }
+    )
+
+    # Check if task required adaptive behavior
+    if task_result.execution_log:
+        adaptive_actions = [
+            entry for entry in task_result.execution_log
+            if "adaptive" in str(entry).lower() or "alternative" in str(entry).lower()
+        ]
+
+        if adaptive_actions:
+            print(f"Task required {len(adaptive_actions)} adaptive behaviors")
+            for action in adaptive_actions[:3]:  # Show first 3 adaptive actions
+                print(f"  - {action}")
+
+    await capstone_service.end_session(session.id)
+
+    return {
+        "project_id": project.id,
+        "session_id": session.id,
+        "task_result": task_result,
+        "adaptive_behaviors": len(adaptive_actions) if 'adaptive_actions' in locals() else 0
+    }
+
+def get_current_camera_image():
+    """
+    Simulated function to get current camera image
+    In a real implementation, this would capture from robot's camera
+    """
+    # Return a simulated base64 encoded image
+    return "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH6AAAAA//Z"
+
+async def get_dynamic_obstacles():
+    """
+    Simulated function to get real-time obstacle information
+    In a real implementation, this would interface with sensor systems
+    """
+    return {
+        "moving_obstacles": [{"id": "person_001", "position": {"x": 2.5, "y": 1.8}, "velocity": {"x": 0.2, "y": 0.1}}],
+        "temporary_obstacles": [{"type": "construction", "area": {"min_x": 3.0, "max_x": 4.0, "min_y": 1.0, "max_y": 2.0}}],
+        "last_updated": time.time()
+    }
+```
+
+## Advanced Capstone Workflows
+
+### Example 4: Multi-User Interaction
+
+```python
+async def run_multi_user_interaction_workflow():
+    """
+    Complete workflow: Humanoid robot interacts with multiple users simultaneously
+    """
+    capstone_service = CapstoneService()
+
+    # Create multi-user interaction project
+    project = await capstone_service.create_capstone_project(
+        name="Multi-User Interaction",
+        description="Humanoid robot that manages tasks for multiple users",
+        configuration={
+            "robot_type": "social_humanoid",
+            "capabilities": ["navigation", "manipulation", "perception", "voice_control", "user_tracking"],
+            "environment": "shared_office",
+            "user_capacity": 4
+        }
+    )
+
+    session = await capstone_service.start_capstone_session(
+        project_id=project.id,
+        user_preferences={
+            "user_priorities": {"user_1": "high", "user_2": "medium", "user_3": "low"},
+            "interaction_mode": "courteous",  # "efficient", "courteous", "focused"
+            "privacy_settings": {"audio_recording": False, "video_recording": False}
+        }
+    )
+
+    # Simulated multiple user commands arriving over time
+    user_commands = [
+        {"user_id": "user_1", "command": "Please bring me my laptop from my desk", "timestamp": time.time()},
+        {"user_id": "user_2", "command": "Can you go to the printer and bring my documents?", "timestamp": time.time() + 10},
+        {"user_id": "user_3", "command": "Navigate to the conference room and wait", "timestamp": time.time() + 25},
+        {"user_id": "user_1", "command": "Actually, bring me a glass of water instead", "timestamp": time.time() + 45}
+    ]
+
+    task_results = []
+    for cmd_data in user_commands:
+        print(f"Processing command from {cmd_data['user_id']}: {cmd_data['command']}")
+
+        task_result = await capstone_service.execute_capstone_task(
+            session_id=session.id,
+            command=cmd_data['command'],
+            task_context={
+                "requesting_user": cmd_data['user_id'],
+                "request_time": cmd_data['timestamp'],
+                "user_priority": get_user_priority(cmd_data['user_id']),  # Simulated function
+                "current_user_queue": get_current_user_queue(),  # Simulated function
+                "conflicting_requests": get_conflicting_requests(cmd_data['command'])  # Simulated function
+            }
+        )
+
+        task_results.append({
+            "user_id": cmd_data['user_id'],
+            "command": cmd_data['command'],
+            "result": task_result,
+            "processing_time": time.time() - cmd_data['timestamp']
+        })
+
+    # Generate multi-user interaction report
+    interaction_report = await generate_interaction_report(task_results)
+
+    await capstone_service.end_session(session.id)
+
+    return {
+        "project_id": project.id,
+        "session_id": session.id,
+        "task_results": task_results,
+        "interaction_report": interaction_report
+    }
+
+def get_user_priority(user_id):
+    """Simulated function to get user priority"""
+    priorities = {"user_1": "high", "user_2": "medium", "user_3": "low", "user_4": "medium"}
+    return priorities.get(user_id, "medium")
+
+def get_current_user_queue():
+    """Simulated function to get current user request queue"""
+    return ["user_1", "user_2", "user_3"]
+
+def get_conflicting_requests(command):
+    """Simulated function to detect conflicting requests"""
+    # Simple conflict detection
+    if "bring me" in command.lower() and "laptop" in command.lower():
+        return ["user_2_print_request"]  # Conflicts with printing task
+    return []
+
+async def generate_interaction_report(task_results):
+    """Generate a report on multi-user interactions"""
+    total_tasks = len(task_results)
+    successful_tasks = sum(1 for tr in task_results if tr["result"].success)
+    user_satisfaction = calculate_user_satisfaction(task_results)
+
+    return {
+        "total_interactions": total_tasks,
+        "successful_interactions": successful_tasks,
+        "success_rate": successful_tasks / total_tasks if total_tasks > 0 else 0,
+        "user_satisfaction_score": user_satisfaction,
+        "average_response_time": sum(tr["processing_time"] for tr in task_results) / total_tasks if total_tasks > 0 else 0,
+        "user_distribution": count_user_interactions(task_results)
+    }
+
+def calculate_user_satisfaction(task_results):
+    """Calculate user satisfaction based on task outcomes"""
+    # Simplified satisfaction calculation
+    successful_per_user = {}
+    total_per_user = {}
+
+    for result in task_results:
+        user_id = result["user_id"]
+        total_per_user[user_id] = total_per_user.get(user_id, 0) + 1
+        if result["result"].success:
+            successful_per_user[user_id] = successful_per_user.get(user_id, 0) + 1
+
+    satisfaction_scores = {}
+    for user_id in total_per_user:
+        success_rate = successful_per_user.get(user_id, 0) / total_per_user[user_id]
+        satisfaction_scores[user_id] = success_rate
+
+    return satisfaction_scores
+
+def count_user_interactions(task_results):
+    """Count interactions per user"""
+    user_counts = {}
+    for result in task_results:
+        user_id = result["user_id"]
+        user_counts[user_id] = user_counts.get(user_id, 0) + 1
+    return user_counts
+```
+
+### Example 5: Learning and Adaptation Workflow
+
+```python
+async def run_learning_adaptation_workflow():
+    """
+    Complete workflow: Humanoid robot learns and adapts behavior over time
+    """
+    capstone_service = CapstoneService()
+
+    # Create learning and adaptation project
+    project = await capstone_service.create_capstone_project(
+        name="Learning and Adaptation",
+        description="Humanoid robot that learns from interactions and adapts behavior",
+        configuration={
+            "robot_type": "learning_humanoid",
+            "capabilities": ["navigation", "manipulation", "perception", "voice_control", "learning"],
+            "environment": "dynamic_office",
+            "learning_enabled": True,
+            "adaptation_frequency": "continuous"
+        }
+    )
+
+    session = await capstone_service.start_capstone_session(
+        project_id=project.id,
+        user_preferences={
+            "learning_rate": "moderate",  # "slow", "moderate", "fast"
+            "adaptation_sensitivity": "medium",  # "low", "medium", "high"
+            "feedback_mode": "implicit"  # "explicit", "implicit", "both"
+        }
+    )
+
+    # Run a series of tasks to build learning context
+    initial_tasks = [
+        "Go to the kitchen and bring a cup",
+        "Navigate to the conference room",
+        "Find the red notebook on the table",
+        "Return to the charging station"
+    ]
+
+    learning_context = {"task_history": [], "success_patterns": [], "failure_patterns": []}
+
+    for i, command in enumerate(initial_tasks):
+        print(f"Learning task {i+1}/{len(initial_tasks)}: {command}")
+
+        task_result = await capstone_service.execute_capstone_task(
+            session_id=session.id,
+            command=command,
+            task_context={
+                "learning_context": learning_context,
+                "task_sequence_number": i,
+                "environment_state": await get_environment_state()
+            }
+        )
+
+        # Update learning context based on result
+        learning_context = await update_learning_context(
+            learning_context,
+            command,
+            task_result,
+            await get_environment_state()
+        )
+
+        print(f"Task completed: {task_result.success}")
+
+    # Now run a complex task using learned patterns
+    complex_adaptive_task = "Go to the break room, get snacks for the meeting, and set them up in conference room B"
+
+    adaptive_result = await capstone_service.execute_capstone_task(
+        session_id=session.id,
+        command=complex_adaptive_task,
+        task_context={
+            "learning_context": learning_context,
+            "use_learned_patterns": True,
+            "environment_state": await get_environment_state()
+        }
+    )
+
+    print(f"Adaptive task completed: {adaptive_result.success}")
+
+    # Generate learning report
+    learning_report = await generate_learning_report(learning_context, adaptive_result)
+
+    await capstone_service.end_session(session.id)
+
+    return {
+        "project_id": project.id,
+        "session_id": session.id,
+        "initial_tasks_results": [{"command": cmd, "result": res} for cmd, res in zip(initial_tasks, [adaptive_result])],  # Simplified
+        "adaptive_task_result": adaptive_result,
+        "learning_report": learning_report
+    }
+
+async def get_environment_state():
+    """Simulated function to get current environment state"""
+    return {
+        "time_of_day": "afternoon",
+        "occupancy": "medium",
+        "object_locations": {"snacks": "break_room", "meeting_supplies": "storage_closet"},
+        "obstacles": [],
+        "lighting": "normal"
+    }
+
+async def update_learning_context(context, command, task_result, environment_state):
+    """Update learning context based on task outcome"""
+    # Add task to history
+    context["task_history"].append({
+        "command": command,
+        "result": task_result.success,
+        "execution_time": task_result.execution_time,
+        "environment": environment_state,
+        "timestamp": time.time()
+    })
+
+    # Update success/failure patterns
+    if task_result.success:
+        context["success_patterns"].append({
+            "command_pattern": extract_command_pattern(command),
+            "environment_conditions": environment_state,
+            "execution_approach": task_result.plan  # Simplified
+        })
+    else:
+        context["failure_patterns"].append({
+            "command_pattern": extract_command_pattern(command),
+            "environment_conditions": environment_state,
+            "failure_reason": task_result.error_message
+        })
+
+    return context
+
+def extract_command_pattern(command):
+    """Extract pattern from command for learning"""
+    import re
+    # Simple pattern extraction
+    if "go to" in command.lower():
+        return "navigation_task"
+    elif "bring" in command.lower() or "get" in command.lower():
+        return "retrieval_task"
+    elif "find" in command.lower():
+        return "search_task"
+    else:
+        return "general_task"
+
+async def generate_learning_report(learning_context, final_result):
+    """Generate a report on the learning process"""
+    total_tasks = len(learning_context["task_history"])
+    successful_tasks = sum(1 for task in learning_context["task_history"] if task["result"])
+    success_rate = successful_tasks / total_tasks if total_tasks > 0 else 0
+
+    # Identify learned patterns
+    common_patterns = identify_common_patterns(learning_context["success_patterns"])
+
+    return {
+        "total_tasks_processed": total_tasks,
+        "success_rate": success_rate,
+        "learned_patterns_count": len(common_patterns),
+        "common_success_patterns": common_patterns,
+        "failure_analysis": analyze_failures(learning_context["failure_patterns"]),
+        "adaptation_score": calculate_adaptation_score(learning_context, final_result)
+    }
+
+def identify_common_patterns(success_patterns):
+    """Identify common successful patterns"""
+    from collections import Counter
+    patterns = [pattern.get("command_pattern", "unknown") for pattern in success_patterns]
+    pattern_counts = Counter(patterns)
+    return [{"pattern": pattern, "frequency": count} for pattern, count in pattern_counts.most_common()]
+
+def analyze_failures(failure_patterns):
+    """Analyze common failure patterns"""
+    from collections import Counter
+    failure_reasons = [fp.get("failure_reason", "unknown") for fp in failure_patterns]
+    reason_counts = Counter(failure_reasons)
+    return [{"reason": reason, "count": count} for reason, count in reason_counts.most_common()]
+
+def calculate_adaptation_score(learning_context, final_result):
+    """Calculate how well the robot adapted"""
+    # Simple adaptation score based on using learned patterns
+    learned_execution = final_result.plan  # Simplified
+    # In a real implementation, we'd compare against baseline performance
+    return 0.85  # Placeholder score
+```
+
+## Error Handling and Recovery in Capstone Workflows
+
+### Example 6: Robust Error Recovery
+
+```python
+async def run_robust_error_recovery_workflow():
+    """
+    Complete workflow with comprehensive error handling and recovery
+    """
+    capstone_service = CapstoneService()
+
+    project = await capstone_service.create_capstone_project(
+        name="Robust Error Recovery",
+        description="Humanoid robot with sophisticated error handling and recovery",
+        configuration={
+            "robot_type": "robust_humanoid",
+            "capabilities": ["navigation", "manipulation", "perception", "voice_control", "error_recovery"],
+            "environment": "challenging_office",
+            "recovery_enabled": True,
+            "fallback_strategies": ["alternative_path", "human_assistance", "task_delegation"]
+        }
+    )
+
+    session = await capstone_service.start_capstone_session(
+        project_id=project.id,
+        user_preferences={
+            "recovery_tolerance": "high",  # "low", "medium", "high"
+            "human_assistance_threshold": 3,  # Number of failed attempts before asking for help
+            "task_delegation_enabled": True
+        }
+    )
+
+    # Task that is likely to encounter errors
+    challenging_command = "Go to the storage room, pick up the fragile vase, navigate through the narrow hallway, and place it on the display shelf"
+
+    task_result = await capstone_service.execute_capstone_task(
+        session_id=session.id,
+        command=challenging_command,
+        camera_data=get_current_camera_image(),
+        task_context={
+            "fragile_object_handling": True,
+            "narrow_space_navigation": True,
+            "precise_placement_required": True,
+            "error_recovery_context": {
+                "max_recovery_attempts": 5,
+                "recovery_strategies": ["path_alternative", "grip_adjustment", "speed_reduction"],
+                "escalation_procedures": ["pause_and_assess", "request_assistance", "task_reassignment"]
+            }
+        }
+    )
+
+    # Analyze recovery actions taken
+    recovery_actions = await analyze_recovery_actions(task_result.execution_log)
+
+    print(f"Task completed with {len(recovery_actions)} recovery actions taken")
+
+    await capstone_service.end_session(session.id)
+
+    return {
+        "project_id": project.id,
+        "session_id": session.id,
+        "task_result": task_result,
+        "recovery_analysis": recovery_actions
+    }
+
+async def analyze_recovery_actions(execution_log):
+    """Analyze recovery actions taken during task execution"""
+    recovery_actions = []
+
+    if execution_log:
+        for log_entry in execution_log:
+            if isinstance(log_entry, dict):
+                # Look for recovery-related keywords in the log
+                entry_str = str(log_entry).lower()
+                if any(keyword in entry_str for keyword in ["recovery", "fallback", "alternative", "retry", "error"]):
+                    recovery_actions.append(log_entry)
+
+    return recovery_actions
+```
+
+These complete workflow examples demonstrate how the autonomous humanoid capstone project integrates all VLA components to execute sophisticated voice-commanded tasks with learning, adaptation, and robust error handling capabilities. Each workflow shows a different aspect of the complete VLA system in action, from simple room service to complex multi-user interaction and learning-based adaptation.

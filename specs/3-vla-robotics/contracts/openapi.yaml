@@ -1,0 +1,425 @@
+openapi: 3.0.3
+info:
+  title: Physical AI & Humanoid Robotics RAG Chatbot API
+  description: API for the RAG (Retrieval-Augmented Generation) chatbot system integrated with the Physical AI & Humanoid Robotics textbook
+  version: 1.0.0
+servers:
+  - url: http://localhost:8000
+    description: Development server
+  - url: https://api.yourdomain.com
+    description: Production server
+
+paths:
+  /api/v1/embed:
+    post:
+      summary: Create embeddings for new content
+      description: Process and store new content for RAG retrieval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmbedRequest'
+      responses:
+        '200':
+          description: Embeddings created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbedResponse'
+        '400':
+          description: Invalid request parameters
+        '500':
+          description: Internal server error
+
+  /api/v1/embed/chunk:
+    post:
+      summary: Create embeddings for text chunks
+      description: Process and store text chunks for RAG retrieval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChunkEmbedRequest'
+      responses:
+        '200':
+          description: Chunk embeddings created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EmbedResponse'
+        '400':
+          description: Invalid request parameters
+        '500':
+          description: Internal server error
+
+  /api/v1/query:
+    post:
+      summary: Query the RAG system
+      description: Retrieve relevant content and generate response using LLM
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QueryRequest'
+      responses:
+        '200':
+          description: Query processed successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '400':
+          description: Invalid request parameters
+        '500':
+          description: Internal server error
+
+  /api/v1/query/selected-text:
+    post:
+      summary: Query using only selected text
+      description: Generate response based only on provided text, without RAG retrieval
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SelectedTextQueryRequest'
+      responses:
+        '200':
+          description: Response generated from selected text
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QueryResponse'
+        '400':
+          description: Invalid request parameters
+        '500':
+          description: Internal server error
+
+  /api/v1/chat/start:
+    post:
+      summary: Start a new chat session
+      description: Create a new chat session for conversation history
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartChatRequest'
+      responses:
+        '200':
+          description: Chat session started successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatSessionResponse'
+        '400':
+          description: Invalid request parameters
+        '500':
+          description: Internal server error
+
+  /api/v1/chat/message:
+    post:
+      summary: Add message to chat session
+      description: Add a message to an existing chat session
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ChatMessageRequest'
+      responses:
+        '200':
+          description: Message added successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatMessageResponse'
+        '400':
+          description: Invalid request parameters
+        '404':
+          description: Chat session not found
+        '500':
+          description: Internal server error
+
+  /api/v1/chat/session/{sessionId}:
+    get:
+      summary: Get chat session history
+      description: Retrieve the conversation history for a chat session
+      parameters:
+        - name: sessionId
+          in: path
+          required: true
+          schema:
+            type: string
+          description: The chat session ID
+      responses:
+        '200':
+          description: Chat session history retrieved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ChatHistoryResponse'
+        '404':
+          description: Chat session not found
+        '500':
+          description: Internal server error
+
+components:
+  schemas:
+    EmbedRequest:
+      type: object
+      required:
+        - content
+        - documentId
+        - metadata
+      properties:
+        content:
+          type: string
+          description: The content to create embeddings for
+        documentId:
+          type: string
+          description: Unique identifier for the document
+        metadata:
+          type: object
+          description: Additional metadata for the document
+          additionalProperties: true
+
+    ChunkEmbedRequest:
+      type: object
+      required:
+        - chunks
+        - documentId
+      properties:
+        chunks:
+          type: array
+          items:
+            type: string
+          description: Array of text chunks to create embeddings for
+        documentId:
+          type: string
+          description: Unique identifier for the document
+        metadata:
+          type: object
+          description: Additional metadata for the document
+          additionalProperties: true
+
+    EmbedResponse:
+      type: object
+      properties:
+        success:
+          type: boolean
+          description: Whether the embedding was successful
+        documentId:
+          type: string
+          description: The document ID for which embeddings were created
+        chunksProcessed:
+          type: integer
+          description: Number of text chunks processed
+        createdAt:
+          type: string
+          format: date-time
+          description: When the embeddings were created
+
+    QueryRequest:
+      type: object
+      required:
+        - question
+        - sessionId
+      properties:
+        question:
+          type: string
+          description: The question to ask
+        sessionId:
+          type: string
+          description: The chat session ID
+        maxResults:
+          type: integer
+          default: 5
+          description: Maximum number of results to retrieve from vector store
+        contextLength:
+          type: integer
+          default: 4000
+          description: Maximum context length for the LLM
+
+    SelectedTextQueryRequest:
+      type: object
+      required:
+        - question
+        - selectedText
+        - sessionId
+      properties:
+        question:
+          type: string
+          description: The question to ask
+        selectedText:
+          type: string
+          description: The text to use as context (instead of RAG retrieval)
+        sessionId:
+          type: string
+          description: The chat session ID
+
+    QueryResponse:
+      type: object
+      required:
+        - response
+        - sources
+        - sessionId
+      properties:
+        response:
+          type: string
+          description: The AI-generated response
+        sources:
+          type: array
+          items:
+            $ref: '#/components/schemas/Source'
+          description: Sources used to generate the response
+        sessionId:
+          type: string
+          description: The chat session ID
+        timestamp:
+          type: string
+          format: date-time
+          description: When the response was generated
+
+    Source:
+      type: object
+      properties:
+        id:
+          type: string
+          description: Unique identifier for the source
+        title:
+          type: string
+          description: Title of the source
+        content:
+          type: string
+          description: Excerpt from the source
+        score:
+          type: number
+          format: float
+          description: Relevance score (0-1)
+        url:
+          type: string
+          description: URL to the source if applicable
+
+    StartChatRequest:
+      type: object
+      properties:
+        userId:
+          type: string
+          description: Optional user identifier for tracking
+
+    ChatSessionResponse:
+      type: object
+      required:
+        - sessionId
+        - createdAt
+      properties:
+        sessionId:
+          type: string
+          description: The new chat session ID
+        createdAt:
+          type: string
+          format: date-time
+          description: When the session was created
+        title:
+          type: string
+          description: Auto-generated title for the session
+
+    ChatMessageRequest:
+      type: object
+      required:
+        - sessionId
+        - message
+        - role
+      properties:
+        sessionId:
+          type: string
+          description: The chat session ID
+        message:
+          type: string
+          description: The message content
+        role:
+          type: string
+          enum: [user, assistant]
+          description: The role of the message sender
+        metadata:
+          type: object
+          description: Additional metadata for the message
+          additionalProperties: true
+
+    ChatMessageResponse:
+      type: object
+      required:
+        - sessionId
+        - response
+        - timestamp
+      properties:
+        sessionId:
+          type: string
+          description: The chat session ID
+        response:
+          type: string
+          description: The AI response to the message
+        timestamp:
+          type: string
+          format: date-time
+          description: When the response was generated
+
+    ChatHistoryResponse:
+      type: object
+      required:
+        - sessionId
+        - messages
+      properties:
+        sessionId:
+          type: string
+          description: The chat session ID
+        title:
+          type: string
+          description: Title of the chat session
+        messages:
+          type: array
+          items:
+            $ref: '#/components/schemas/ChatMessage'
+        createdAt:
+          type: string
+          format: date-time
+          description: When the session was created
+        lastActive:
+          type: string
+          format: date-time
+          description: When the session was last used
+
+    ChatMessage:
+      type: object
+      required:
+        - id
+        - role
+        - content
+        - timestamp
+      properties:
+        id:
+          type: string
+          description: Unique message ID
+        role:
+          type: string
+          enum: [user, assistant]
+          description: The role of the message sender
+        content:
+          type: string
+          description: The message content
+        timestamp:
+          type: string
+          format: date-time
+          description: When the message was created
+
+tags:
+  - name: Embedding
+    description: Endpoints for creating and managing embeddings
+  - name: Query
+    description: Endpoints for querying the RAG system
+  - name: Chat
+    description: Endpoints for chat session management

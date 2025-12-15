@@ -1,0 +1,122 @@
+---
+sidebar_position: 7
+---
+
+# ROS 2 Performance Optimization
+
+## Learning Objectives
+- Understand performance bottlenecks in ROS 2 applications
+- Learn optimization techniques for publishers and subscribers
+- Master efficient message handling and serialization
+- Implement performance monitoring and profiling
+
+## Table of Contents
+1. [Performance Analysis](#performance-analysis)
+2. [Message Optimization](#message-optimization)
+3. [Node Optimization](#node-optimization)
+4. [Middleware Configuration](#middleware-configuration)
+5. [Memory Management](#memory-management)
+
+## Performance Analysis
+
+Understanding performance bottlenecks is crucial for optimizing ROS 2 applications:
+
+### Profiling Tools
+- `ros2 doctor`: Diagnose configuration issues
+- `ros2 topic hz`: Monitor message frequency
+- `ros2 topic delay`: Measure message latency
+- `ros2 lifecycle`: Monitor node states
+
+### Benchmarking Commands
+```bash
+# Monitor topic frequency
+ros2 topic hz /sensor_data
+
+# Monitor topic delay
+ros2 topic delay /robot_state
+
+# Monitor topic bandwidth
+ros2 topic bw /image_raw
+```
+
+## Message Optimization
+
+### Message Design
+- Minimize message size by removing unnecessary fields
+- Use appropriate data types (float32 vs float64)
+- Consider message fragmentation for large data
+
+### Serialization Optimization
+```cpp
+// Efficient message handling
+void processMessage(const MyMessage::SharedPtr msg) {
+    // Process message efficiently
+    if (msg->header.stamp.sec == 0) {
+        // Skip invalid timestamps
+        return;
+    }
+
+    // Use move semantics when possible
+    processSensorData(std::move(msg->sensor_data));
+}
+```
+
+## Node Optimization
+
+### Efficient Publishers and Subscribers
+```cpp
+// Configure QoS for performance
+rclcpp::QoS qos_profile(10);
+qos_profile.reliability(RMW_QOS_POLICY_RELIABILITY_BEST_EFFORT);
+qos_profile.durability(RMW_QOS_POLICY_DURABILITY_VOLATILE);
+
+auto publisher = this->create_publisher<MessageType>(
+    "topic_name", qos_profile);
+```
+
+### Threading Configuration
+- Use separate callback groups for different tasks
+- Configure executor appropriately for your use case
+- Consider using multi-threaded executor for I/O intensive nodes
+
+## Middleware Configuration
+
+### Fast DDS Configuration
+Optimize DDS middleware settings for your specific use case:
+
+```xml
+<!-- Fast DDS configuration profile -->
+<dds>
+    <profiles>
+        <participant profile_name="performance_participant">
+            <rtps>
+                <name>performance_node</name>
+                <builtin>
+                    <discovery_config>
+                        <leaseDuration>
+                            <sec>20</sec>
+                        </leaseDuration>
+                    </discovery_config>
+                </builtin>
+            </rtps>
+        </participant>
+    </profiles>
+</dds>
+```
+
+## Memory Management
+
+### Memory Pooling
+Use memory pools for frequently allocated messages:
+
+```cpp
+// Custom allocator for message types
+auto msg = std::make_shared<MessageType>(custom_allocator);
+```
+
+### Zero-Copy Transfers
+Where possible, use zero-copy message passing to reduce memory overhead.
+
+## Summary
+
+This chapter covered essential performance optimization techniques for ROS 2 applications, helping developers create efficient and responsive robotic systems.

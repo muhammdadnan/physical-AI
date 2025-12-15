@@ -1,0 +1,477 @@
+# Perception-Plan Integration Examples
+
+This chapter provides practical examples of how perception results integrate with LLM planning workflows, enabling robots to make intelligent decisions based on visual information.
+
+## Basic Perception-to-Plan Flow
+
+### Example 1: Object Search and Grasp
+
+```python
+async def execute_search_and_grasp_task(vision_service, planning_service, target_object):
+    """
+    Complete workflow: perceive environment → plan action → execute
+    """
+    # Step 1: Capture and analyze current scene
+    camera_image = capture_camera_image()  # This would come from robot's camera
+    image_data = encode_image_to_base64(camera_image)
+
+    # Step 2: Detect objects in the scene
+    detection_result = await vision_service.detect_objects(
+        image_data=image_data,
+        target_objects=[target_object]
+    )
+
+    # Step 3: Check if target object is found
+    target_obj = None
+    for obj in detection_result.objects:
+        if obj["type"].lower() == target_object.lower():
+            target_obj = obj
+            break
+
+    if not target_obj:
+        # Object not found, need to plan a search strategy
+        search_plan = await planning_service.create_plan_from_goal(
+            goal=f"Search for {target_object} in the room",
+            context={
+                "current_scene": detection_result.scene_description,
+                "object_missing": target_object,
+                "search_strategy": "systematic_room_search"
+            }
+        )
+        return search_plan
+
+    # Step 4: If object found, plan grasping action
+    grasp_plan = await planning_service.create_plan_from_goal(
+        goal=f"Grasp the {target_object}",
+        context={
+            "object_location": target_obj["location_3d"],
+            "object_type": target_obj["type"],
+            "object_confidence": target_obj["confidence"],
+            "current_pose": get_robot_pose()  # Current robot position
+        }
+    )
+
+    return grasp_plan
+
+# Usage example
+async def run_search_and_grasp_example():
+    vision_service = VisionService()
+    planning_service = LLMPlanningService()
+
+    # Task: Find and grasp a red cup
+    plan = await execute_search_and_grasp_task(
+        vision_service=vision_service,
+        planning_service=planning_service,
+        target_object="cup"
+    )
+
+    print(f"Generated plan with {len(plan.sub_tasks)} sub-tasks")
+    print(f"Plan goal: {plan.goal}")
+```
+
+## Scene Context Integration
+
+### Example 2: Context-Aware Navigation
+
+```python
+async def create_navigation_plan_with_vision_context(vision_service, planning_service, destination):
+    """
+    Create navigation plan using current scene context
+    """
+    # Get current scene analysis
+    camera_image = capture_camera_image()
+    image_data = encode_image_to_base64(camera_image)
+
+    scene_analysis = await vision_service.analyze_scene(image_data)
+
+    # Create navigation plan with scene context
+    navigation_plan = await planning_service.create_plan_from_goal(
+        goal=f"Navigate to {destination}",
+        context={
+            "destination": destination,
+            "current_scene": {
+                "object_count": scene_analysis["object_count"],
+                "object_types": scene_analysis["object_types"],
+                "scene_complexity": scene_analysis["scene_complexity"],
+                "obstacles": [obj for obj in scene_analysis["object_types"] if obj in ["chair", "table", "person"]]
+            },
+            "navigation_strategy": "avoid_obstacles" if scene_analysis["object_count"] > 3 else "direct_path"
+        }
+    )
+
+    return navigation_plan
+
+# Example with obstacle-aware planning
+async def navigate_with_obstacle_avoidance():
+    vision_service = VisionService()
+    planning_service = LLMPlanningService()
+
+    # Get current scene
+    scene_analysis = await vision_service.analyze_scene(get_current_image())
+
+    if scene_analysis["scene_complexity"] in ["complex_mixed", "complex_same_type"]:
+        # Scene is complex, plan with obstacle avoidance
+        plan = await create_navigation_plan_with_vision_context(
+            vision_service,
+            planning_service,
+            "kitchen"
+        )
+
+        print("Created obstacle-aware navigation plan")
+        print(f"Scene had {scene_analysis['object_count']} objects")
+    else:
+        # Simple scene, direct navigation
+        simple_plan = await planning_service.create_plan_from_goal(
+            goal="Go to kitchen",
+            context={"scene": "simple", "obstacles": []}
+        )
+
+        print("Created simple navigation plan")
+```
+
+## Multi-Modal Planning
+
+### Example 3: Combined Perception and Action Planning
+
+```python
+async def execute_clean_room_task_with_perception(vision_service, planning_service):
+    """
+    Complex task: Clean room using perception to identify trash objects
+    """
+    # Initial room scan
+    initial_image = capture_camera_image()
+    initial_image_data = encode_image_to_base64(initial_image)
+
+    # Detect all objects in the room
+    all_objects = await vision_service.detect_objects(
+        image_data=initial_image_data,
+        target_objects=None  # Detect all objects
+    )
+
+    # Identify trash objects based on type
+    trash_types = ["bottle", "cup", "paper", "box", "can"]
+    trash_objects = [
+        obj for obj in all_objects.objects
+        if obj["type"].lower() in trash_types and obj["confidence"] > 0.7
+    ]
+
+    if not trash_objects:
+        # No trash detected, return simple plan
+        return await planning_service.create_plan_from_goal(
+            goal="Room is clean, no action needed",
+            context={"room_status": "clean", "trash_count": 0}
+        )
+
+    # Create complex cleaning plan based on trash locations
+    cleaning_context = {
+        "trash_objects": [
+            {
+                "type": obj["type"],
+                "location_3d": obj["location_3d"],
+                "confidence": obj["confidence"]
+            }
+            for obj in trash_objects
+        ],
+        "trash_count": len(trash_objects),
+        "room_map": "from_vision_analysis",
+        "trash_bin_location": "known_location"
+    }
+
+    cleaning_plan = await planning_service.create_plan_from_goal(
+        goal=f"Clean the room by disposing of {len(trash_objects)} trash items",
+        context=cleaning_context
+    )
+
+    return cleaning_plan
+
+# Detailed cleaning workflow
+async def detailed_cleaning_workflow():
+    vision_service = VisionService()
+    planning_service = LLMPlanningService()
+
+    print("Starting room cleaning task...")
+
+    # Phase 1: Scan room and identify trash
+    cleaning_plan = await execute_clean_room_task_with_perception(
+        vision_service,
+        planning_service
+    )
+
+    print(f"Generated cleaning plan with {len(cleaning_plan.sub_tasks)} tasks")
+    print(f"Found {len(cleaning_plan.context.get('trash_objects', []))} trash items")
+
+    # Execute each cleaning sub-task with periodic vision updates
+    for i, task in enumerate(cleaning_plan.sub_tasks):
+        print(f"Executing task {i+1}: {task['description']}")
+
+        if task["action"] == "navigate_to" and "trash" in task.get("description", ""):
+            # Before navigating, verify object still exists
+            updated_image = encode_image_to_base64(capture_camera_image())
+            updated_detection = await vision_service.detect_objects(
+                image_data=updated_image,
+                target_objects=[task.get("object_type", "unknown")]
+            )
+
+            if not updated_detection.objects:
+                print(f"Object no longer visible, updating plan...")
+                # Plan would be updated here in a real system
+```
+
+## Perception-Driven Plan Refinement
+
+### Example 4: Dynamic Plan Adjustment
+
+```python
+class PerceptionDrivenPlanner:
+    def __init__(self, vision_service, planning_service):
+        self.vision_service = vision_service
+        self.planning_service = planning_service
+
+    async def execute_plan_with_perception_feedback(self, initial_plan, execution_context):
+        """
+        Execute a plan while continuously updating based on perception
+        """
+        current_plan = initial_plan
+        execution_log = []
+
+        for step_idx, task in enumerate(current_plan.sub_tasks):
+            # Execute current task
+            task_result = await self.execute_task(task)
+            execution_log.append({
+                "step": step_idx,
+                "task": task,
+                "result": task_result
+            })
+
+            # Get updated perception after task completion
+            if execution_context.get("verify_with_vision", True):
+                updated_image = encode_image_to_base64(capture_camera_image())
+
+                # Analyze the result of the task
+                if task["action"] == "grasp_object":
+                    # Verify if object was successfully grasped
+                    scene_analysis = await self.vision_service.analyze_scene(updated_image)
+
+                    if self._verify_grasp_success(task, scene_analysis):
+                        print(f"Grasp verified as successful")
+                    else:
+                        print(f"Grasp may have failed, replanning...")
+                        # Adjust plan based on new information
+                        current_plan = await self._adjust_plan_for_failure(
+                            current_plan,
+                            step_idx,
+                            "grasp_failed"
+                        )
+                elif task["action"] == "place_object":
+                    # Verify if object was placed correctly
+                    scene_analysis = await self.vision_service.analyze_scene(updated_image)
+
+                    if self._verify_placement_success(task, scene_analysis):
+                        print(f"Placement verified as successful")
+                    else:
+                        print(f"Placement may have failed, adjusting...")
+
+        return {
+            "final_plan": current_plan,
+            "execution_log": execution_log,
+            "success": self._evaluate_overall_success(execution_log)
+        }
+
+    async def _adjust_plan_for_failure(self, current_plan, failed_step, failure_type):
+        """Adjust plan when a step fails"""
+        remaining_tasks = current_plan.sub_tasks[failed_step + 1:]
+
+        if failure_type == "grasp_failed":
+            # Modify the grasp task and retry
+            adjusted_task = current_plan.sub_tasks[failed_step].copy()
+            adjusted_task["parameters"]["grasp_type"] = "alternative_grasp"
+
+            # Recreate plan from this point
+            new_context = {
+                "original_goal": current_plan.goal,
+                "failed_action": "grasp",
+                "adjustment": "try_different_grasp",
+                "remaining_tasks": remaining_tasks
+            }
+
+            return await self.planning_service.create_plan_from_goal(
+                goal=current_plan.goal,
+                context=new_context
+            )
+
+        return current_plan  # Return original if no adjustment needed
+
+    def _verify_grasp_success(self, grasp_task, scene_analysis):
+        """Verify if grasp action was successful using vision"""
+        # In a real system, this would check if the expected object
+        # is no longer in the scene where it was grasped
+        return True  # Simplified for example
+
+    def _verify_placement_success(self, place_task, scene_analysis):
+        """Verify if placement action was successful using vision"""
+        # In a real system, this would check if the object
+        # is now at the expected placement location
+        return True  # Simplified for example
+
+    def _evaluate_overall_success(self, execution_log):
+        """Evaluate if the overall task was successful"""
+        successful_tasks = sum(1 for log in execution_log
+                             if log["result"].get("success", False))
+        return successful_tasks >= len(execution_log) * 0.8  # 80% success rate
+```
+
+## Integration with RAG System
+
+### Example 5: Retrieval-Augmented Perception Planning
+
+```python
+async def plan_with_retrieved_knowledge_and_perception(
+    vision_service,
+    rag_service,
+    planning_service,
+    user_goal
+):
+    """
+    Combine perception, retrieved knowledge, and planning
+    """
+    # Step 1: Get current perception
+    current_image = capture_camera_image()
+    image_data = encode_image_to_base64(current_image)
+
+    scene_analysis = await vision_service.analyze_scene(image_data)
+
+    # Step 2: Query RAG system for relevant knowledge
+    rag_context = await rag_service.retrieve_relevant_content(
+        query=f"robot task: {user_goal} in environment with {scene_analysis['object_types']}",
+        top_k=3
+    )
+
+    # Step 3: Create plan with both perception and retrieved knowledge
+    enriched_context = {
+        "perception_context": {
+            "current_objects": scene_analysis["object_types"],
+            "scene_complexity": scene_analysis["scene_complexity"],
+            "object_locations": await vision_service.get_object_locations(image_data)
+        },
+        "retrieved_knowledge": rag_context,
+        "user_goal": user_goal
+    }
+
+    final_plan = await planning_service.create_plan_from_goal(
+        goal=user_goal,
+        context=enriched_context
+    )
+
+    return final_plan
+
+# Example usage
+async def complete_integration_example():
+    vision_service = VisionService()
+    rag_service = RAGPipeline()  # From our RAG system
+    planning_service = LLMPlanningService()
+
+    # User wants robot to "Set the table for dinner"
+    user_goal = "Set the table for dinner with 4 people"
+
+    # Create plan using perception, RAG, and planning
+    complete_plan = await plan_with_retrieved_knowledge_and_perception(
+        vision_service=vision_service,
+        rag_service=rag_service,
+        planning_service=planning_service,
+        user_goal=user_goal
+    )
+
+    print(f"Created comprehensive plan with perception and knowledge integration")
+    print(f"Plan has {len(complete_plan.sub_tasks)} tasks")
+
+    return complete_plan
+```
+
+## Error Handling in Perception-Planning Loop
+
+### Example 6: Robust Perception-Planning with Error Recovery
+
+```python
+class RobustPerceptionPlanner:
+    def __init__(self, vision_service, planning_service):
+        self.vision_service = vision_service
+        self.planning_service = planning_service
+        self.max_retries = 3
+
+    async def execute_perception_planning_with_recovery(self, goal, max_retries=3):
+        """
+        Execute perception-planning loop with error recovery
+        """
+        for attempt in range(max_retries):
+            try:
+                # Get current perception
+                current_image = capture_camera_image()
+                image_data = encode_image_to_base64(current_image)
+
+                # Validate image quality first
+                if not await self._validate_image_quality(image_data):
+                    print(f"Image quality too low on attempt {attempt + 1}, retrying...")
+                    continue
+
+                # Perform object detection
+                detection_result = await self.vision_service.detect_objects(image_data)
+
+                # Validate detection quality
+                if detection_result.validation.quality_score < 0.3:
+                    print(f"Detection quality too low on attempt {attempt + 1}, retrying...")
+                    continue
+
+                # Create plan based on perception
+                plan = await self.planning_service.create_plan_from_goal(
+                    goal=goal,
+                    context={
+                        "perception_data": detection_result.dict(),
+                        "attempt_number": attempt + 1
+                    }
+                )
+
+                return {
+                    "success": True,
+                    "plan": plan,
+                    "attempt": attempt + 1,
+                    "detection_quality": detection_result.validation.quality_score
+                }
+
+            except Exception as e:
+                print(f"Attempt {attempt + 1} failed: {e}")
+                if attempt == max_retries - 1:
+                    # Last attempt, return error
+                    return {
+                        "success": False,
+                        "error": str(e),
+                        "attempt": attempt + 1
+                    }
+
+                # Wait before retry
+                await asyncio.sleep(1.0)
+
+    async def _validate_image_quality(self, image_data):
+        """Validate if image quality is sufficient for reliable detection"""
+        # In a real system, this would check for blur, lighting, etc.
+        # For simulation, we'll assume images are generally acceptable
+        return True
+
+# Usage with error recovery
+async def run_robust_planning():
+    vision_service = VisionService()
+    planning_service = LLMPlanningService()
+
+    robust_planner = RobustPerceptionPlanner(vision_service, planning_service)
+
+    result = await robust_planner.execute_perception_planning_with_recovery(
+        goal="Find and pick up the red cup"
+    )
+
+    if result["success"]:
+        print(f"Plan created successfully on attempt {result['attempt']}")
+        print(f"Detection quality: {result['detection_quality']:.2f}")
+    else:
+        print(f"Failed after all attempts: {result['error']}")
+```
+
+These examples demonstrate how perception results can be effectively integrated with LLM planning workflows, creating a powerful system where robots can see their environment, understand it, and act intelligently based on both visual information and prior knowledge.

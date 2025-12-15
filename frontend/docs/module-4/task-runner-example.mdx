@@ -1,0 +1,469 @@
+# Voice-Controlled Task Runner Example
+
+This chapter provides a complete, runnable example of a voice-controlled task runner that integrates all VLA components. The example demonstrates how to build a complete pipeline from voice input to robot action execution.
+
+## Complete System Integration
+
+### Main Application Structure
+
+```python
+import asyncio
+import base64
+import logging
+from typing import Dict, Any, Optional
+from vla_system import (
+    WhisperService,
+    LLMPlanningService,
+    VisionService,
+    ROS2MappingService,
+    ROS2IntegrationService,
+    PerceptionPlanningIntegration
+)
+
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+class VoiceControlledTaskRunner:
+    """
+    Complete voice-controlled task runner that integrates all VLA components
+    """
+    def __init__(self):
+        # Initialize all VLA services
+        self.whisper_service = WhisperService()
+        self.planning_service = LLMPlanningService()
+        self.vision_service = VisionService()
+        self.ros2_mapping_service = ROS2MappingService()
+        self.ros2_integration_service = ROS2IntegrationService()
+        self.perception_planning_integration = PerceptionPlanningIntegration()
+
+        # Connect to ROS 2
+        asyncio.create_task(self._connect_to_ros2())
+
+    async def _connect_to_ros2(self):
+        """Connect to ROS 2 system"""
+        connected = await self.ros2_integration_service.connect_to_ros2()
+        if connected:
+            logger.info("Successfully connected to ROS 2 system")
+        else:
+            logger.warning("Could not connect to ROS 2 system - running in simulation mode")
+
+    async def process_voice_task(self, audio_data: str, camera_image_data: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Process a complete voice-controlled task from start to finish
+        """
+        logger.info("Starting voice-controlled task processing")
+
+        try:
+            # Phase 1: Voice Processing
+            logger.info("Phase 1: Processing voice command")
+            voice_result = await self._process_voice_command(audio_data)
+
+            if not voice_result["success"]:
+                return {
+                    "success": False,
+                    "error": voice_result["error"],
+                    "phase": "voice_processing",
+                    "summary": "Failed to process voice command"
+                }
+
+            command_text = voice_result["command"]
+            logger.info(f"Recognized command: '{command_text}'")
+
+            # Phase 2: Perception Integration (if available)
+            perception_context = {}
+            if camera_image_data:
+                logger.info("Phase 2: Integrating perception data")
+                perception_result = await self._integrate_perception(camera_image_data, command_text)
+                perception_context = perception_result["enhanced_context"]
+                logger.info(f"Incorporated perception data with {len(perception_context.get('perception', {}).get('detected_objects', []))} objects")
+
+            # Phase 3: LLM Planning
+            logger.info("Phase 3: Generating LLM plan")
+            plan_result = await self._generate_plan(command_text, perception_context)
+            plan = plan_result["plan"]
+            logger.info(f"Generated plan with {len(plan.sub_tasks)} sub-tasks")
+
+            # Phase 4: Action Mapping
+            logger.info("Phase 4: Mapping plan to ROS 2 actions")
+            action_sequence = await self._map_to_ros2_actions(plan)
+            logger.info(f"Mapped to {len(action_sequence.actions)} ROS 2 actions")
+
+            # Phase 5: Execution
+            logger.info("Phase 5: Executing action sequence")
+            execution_result = await self._execute_action_sequence(action_sequence)
+
+            # Phase 6: Result Compilation
+            result = {
+                "success": True,
+                "command": command_text,
+                "transcription_confidence": voice_result["confidence"],
+                "plan_tasks": len(plan.sub_tasks),
+                "actions_executed": len(action_sequence.actions),
+                "execution_status": execution_result["status"],
+                "execution_summary": execution_result,
+                "perception_used": bool(camera_image_data),
+                "summary": f"Successfully executed '{command_text}' with {len(plan.sub_tasks)} tasks"
+            }
+
+            logger.info(f"Task completed successfully: {result['summary']}")
+            return result
+
+        except Exception as e:
+            logger.error(f"Error in voice-controlled task processing: {str(e)}")
+            return {
+                "success": False,
+                "error": str(e),
+                "summary": f"Task failed due to error: {str(e)}"
+            }
+
+    async def _process_voice_command(self, audio_data: str) -> Dict[str, Any]:
+        """
+        Process voice command using Whisper
+        """
+        try:
+            transcription_result = await self.whisper_service.transcribe_audio(audio_data)
+
+            if transcription_result["confidence"] < 0.5:
+                return {
+                    "success": False,
+                    "error": f"Low transcription confidence: {transcription_result['confidence']:.2f}",
+                    "confidence": transcription_result["confidence"]
+                }
+
+            return {
+                "success": True,
+                "command": transcription_result["text"],
+                "confidence": transcription_result["confidence"]
+            }
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Voice processing error: {str(e)}",
+                "confidence": 0.0
+            }
+
+    async def _integrate_perception(self, image_data: str, command_text: str) -> Dict[str, Any]:
+        """
+        Integrate perception data with the command
+        """
+        try:
+            # Create perception-aware context
+            enhanced_context = await self.perception_planning_integration.create_perception_enhanced_context(
+                user_query=command_text,
+                image_data=image_data
+            )
+
+            return {
+                "success": True,
+                "enhanced_context": enhanced_context
+            }
+        except Exception as e:
+            logger.warning(f"Perception integration failed: {str(e)}, proceeding without perception")
+            return {
+                "success": True,
+                "enhanced_context": {}
+            }
+
+    async def _generate_plan(self, command_text: str, perception_context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Generate LLM plan for the command
+        """
+        try:
+            # Create plan with or without perception context
+            if perception_context:
+                plan = await self.planning_service.create_plan_from_goal(
+                    goal=command_text,
+                    context=perception_context
+                )
+            else:
+                plan = await self.planning_service.create_plan_from_goal(
+                    goal=command_text,
+                    context={"mode": "no_perception"}
+                )
+
+            # Validate the plan
+            is_valid, issues = await self.planning_service.validate_plan(plan)
+
+            return {
+                "plan": plan,
+                "is_valid": is_valid,
+                "validation_issues": issues
+            }
+        except Exception as e:
+            raise Exception(f"Plan generation failed: {str(e)}")
+
+    async def _map_to_ros2_actions(self, plan) -> Any:
+        """
+        Map LLM plan to ROS 2 action sequence
+        """
+        try:
+            action_sequence = await self.ros2_mapping_service.map_plan_to_action_sequence(plan)
+
+            # Validate the action sequence
+            is_valid, issues = await self.ros2_mapping_service.validate_action_sequence(action_sequence)
+
+            if not is_valid:
+                logger.warning(f"Action sequence validation issues: {issues}")
+
+            return action_sequence
+        except Exception as e:
+            raise Exception(f"Action mapping failed: {str(e)}")
+
+    async def _execute_action_sequence(self, action_sequence) -> Dict[str, Any]:
+        """
+        Execute the ROS 2 action sequence
+        """
+        try:
+            execution_result = await self.ros2_integration_service.execute_action_sequence(action_sequence)
+            return execution_result
+        except Exception as e:
+            raise Exception(f"Action execution failed: {str(e)}")
+
+    async def run_demo_tasks(self) -> Dict[str, Any]:
+        """
+        Run a series of demo tasks to test the system
+        """
+        demo_tasks = [
+            "Move forward 1 meter",
+            "Turn left 90 degrees",
+            "Find the red cup",
+            "Go to the table"
+        ]
+
+        results = []
+
+        for i, task in enumerate(demo_tasks):
+            logger.info(f"Running demo task {i+1}/{len(demo_tasks)}: {task}")
+
+            # For demo, we'll use simulated audio data
+            # In real implementation, this would come from microphone
+            simulated_audio = self._create_simulated_audio(task)
+
+            result = await self.process_voice_task(simulated_audio)
+            results.append({
+                "task": task,
+                "result": result
+            })
+
+            logger.info(f"Demo task {i+1} completed with success: {result['success']}")
+
+        summary = {
+            "total_tasks": len(demo_tasks),
+            "successful_tasks": sum(1 for r in results if r["result"]["success"]),
+            "failed_tasks": sum(1 for r in results if not r["result"]["success"]),
+            "individual_results": results
+        }
+
+        return summary
+
+    def _create_simulated_audio(self, text: str) -> str:
+        """
+        Create simulated audio data for demo purposes
+        In real implementation, this would come from actual microphone input
+        """
+        # This is a placeholder - in real system, you'd capture from microphone
+        # For simulation, we'll return a base64 encoded placeholder
+        import base64
+        # Simulated audio data (not real, just for demonstration)
+        simulated_audio_data = "UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAAAAAA="
+        return f"data:audio/wav;base64,{simulated_audio_data}"
+```
+
+## Advanced Usage Patterns
+
+### Continuous Voice Command Processing
+
+```python
+class ContinuousVoiceProcessor:
+    def __init__(self, task_runner: VoiceControlledTaskRunner):
+        self.task_runner = task_runner
+        self.is_listening = False
+        self.command_queue = asyncio.Queue()
+
+    async def start_listening(self):
+        """Start continuous listening for voice commands"""
+        self.is_listening = True
+        logger.info("Starting continuous voice command processing")
+
+        while self.is_listening:
+            try:
+                # In real implementation, this would capture from microphone continuously
+                # For simulation, we'll get commands from a queue
+                audio_data = await asyncio.wait_for(self.command_queue.get(), timeout=1.0)
+
+                if audio_data == "STOP":
+                    break
+
+                result = await self.task_runner.process_voice_task(audio_data)
+                logger.info(f"Command processed: {result.get('summary', 'Unknown result')}")
+
+            except asyncio.TimeoutError:
+                # No command received, continue listening
+                continue
+            except Exception as e:
+                logger.error(f"Error in continuous processing: {str(e)}")
+                continue
+
+    async def stop_listening(self):
+        """Stop continuous listening"""
+        self.is_listening = False
+        await self.command_queue.put("STOP")
+        logger.info("Stopped continuous voice command processing")
+```
+
+### Multi-Modal Task Processing
+
+```python
+class MultiModalTaskProcessor:
+    def __init__(self, task_runner: VoiceControlledTaskRunner):
+        self.task_runner = task_runner
+
+    async def process_multimodal_task(self,
+                                    audio_data: str,
+                                    camera_data: str = None,
+                                    text_command: str = None) -> Dict[str, Any]:
+        """
+        Process tasks with multiple input modalities
+        """
+        # If we have audio data, use that as primary input
+        if audio_data:
+            return await self.task_runner.process_voice_task(audio_data, camera_data)
+
+        # If we have text command, convert to plan directly
+        elif text_command:
+            try:
+                # Generate plan directly from text
+                plan = await self.task_runner.planning_service.create_plan_from_goal(
+                    goal=text_command,
+                    context={"camera_data": camera_data} if camera_data else {}
+                )
+
+                # Map to ROS 2 actions
+                action_sequence = await self.task_runner._map_to_ros2_actions(plan)
+
+                # Execute
+                execution_result = await self.task_runner._execute_action_sequence(action_sequence)
+
+                return {
+                    "success": True,
+                    "command": text_command,
+                    "plan_tasks": len(plan.sub_tasks),
+                    "actions_executed": len(action_sequence.actions),
+                    "execution_status": execution_result["status"],
+                    "summary": f"Executed text command '{text_command}'"
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": str(e),
+                    "summary": f"Failed to execute text command: {str(e)}"
+                }
+
+        else:
+            return {
+                "success": False,
+                "error": "No input provided",
+                "summary": "No audio, camera, or text input provided"
+            }
+```
+
+## Practical Example Usage
+
+### Basic Usage
+
+```python
+async def basic_example():
+    """Basic example of using the voice-controlled task runner"""
+    # Initialize the task runner
+    task_runner = VoiceControlledTaskRunner()
+
+    # Example audio data (in practice, this would come from microphone)
+    audio_data = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAAAAAA="
+
+    # Example camera data (in practice, this would come from robot camera)
+    camera_data = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH6AAAAA//Z"
+
+    # Process a voice command
+    result = await task_runner.process_voice_task(audio_data, camera_data)
+
+    print(f"Task result: {result['summary']}")
+    print(f"Success: {result['success']}")
+    if 'error' in result:
+        print(f"Error: {result['error']}")
+
+# Run the basic example
+# asyncio.run(basic_example())
+```
+
+### Advanced Usage with Error Recovery
+
+```python
+async def advanced_example_with_recovery():
+    """Advanced example with error handling and recovery"""
+    task_runner = VoiceControlledTaskRunner()
+
+    # Define a complex task
+    complex_command = "Find the red cup in the room and bring it to me"
+    audio_data = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAAAAAA="
+
+    result = await task_runner.process_voice_task(audio_data)
+
+    if not result["success"]:
+        print(f"Initial task failed: {result['error']}")
+
+        # Try alternative approach
+        alternative_command = "Look for a cup and come back"
+        print(f"Trying alternative command: {alternative_command}")
+
+        # In a real implementation, you'd convert the alternative command to audio
+        alternative_result = await task_runner.process_voice_task(audio_data)  # Using same audio for demo
+
+        if alternative_result["success"]:
+            print(f"Alternative approach succeeded: {alternative_result['summary']}")
+        else:
+            print(f"Alternative approach also failed: {alternative_result['error']}")
+    else:
+        print(f"Task succeeded: {result['summary']}")
+
+# Run the advanced example
+# asyncio.run(advanced_example_with_recovery())
+```
+
+## Testing and Validation
+
+### Unit Tests
+
+```python
+import unittest
+
+class TestVoiceControlledTaskRunner(unittest.IsolatedAsyncioTestCase):
+    async def asyncSetUp(self):
+        self.task_runner = VoiceControlledTaskRunner()
+
+    async def test_basic_voice_processing(self):
+        """Test basic voice command processing"""
+        audio_data = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAAAAAA="
+
+        result = await self.task_runner.process_voice_task(audio_data)
+
+        # Even with simulated data, we should get a structured response
+        self.assertIn('success', result)
+        self.assertIn('summary', result)
+
+    async def test_task_with_perception(self):
+        """Test task processing with perception data"""
+        audio_data = "data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAAAAAA="
+        camera_data = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/2wBDAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQH/wAARCAABAAEDASIAAhEBAxEB/8QAFQABAQAAAAAAAAAAAAAAAAAAAAv/xAAUEAEAAAAAAAAAAAAAAAAAAAAA/8QAFQEBAQAAAAAAAAAAAAAAAAAAAAX/xAAUAQEAAAAAAAAAAAAAAAAAAAAA/9oADAMBAAIQAxAAAAH6AAAAA//Z"
+
+        result = await self.task_runner.process_voice_task(audio_data, camera_data)
+
+        self.assertIn('success', result)
+        self.assertIn('perception_used', result)
+        self.assertEqual(result['perception_used'], True)
+
+# To run tests:
+# unittest.main()
+```
+
+This example demonstrates a complete, integrated voice-controlled task runner that brings together all the VLA components into a functional system. The implementation shows how to handle the full pipeline from voice input to action execution, with proper error handling and integration of perception data.

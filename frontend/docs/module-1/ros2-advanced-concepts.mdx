@@ -1,0 +1,61 @@
+---
+sidebar_position: 5
+---
+
+# Advanced ROS 2 Concepts
+
+## Learning Objectives
+- Understand advanced ROS 2 architectural patterns
+- Learn about Quality of Service (QoS) policies
+- Explore lifecycle nodes and composition
+- Master parameter management and dynamic reconfiguration
+
+## Table of Contents
+1. [Quality of Service (QoS) Policies](#qos-policies)
+2. [Lifecycle Nodes](#lifecycle-nodes)
+3. [Node Composition](#node-composition)
+4. [Parameter Management](#parameter-management)
+5. [Advanced Communication Patterns](#advanced-communication)
+
+## QoS Policies
+
+Quality of Service (QoS) policies in ROS 2 allow you to specify different communication behaviors between publishers and subscribers. These policies include reliability, durability, liveliness, and deadline settings.
+
+### Reliability Policy
+- **Reliable**: All messages are delivered (with retries if necessary)
+- **Best Effort**: Messages may be dropped, no retry mechanism
+
+### Durability Policy
+- **Transient Local**: Publishers automatically replay messages to new subscribers
+- **Volatile**: New subscribers only receive messages published after subscription
+
+## Lifecycle Nodes
+
+Lifecycle nodes provide a more robust way to manage node states, allowing for initialization, configuration, activation, and deactivation in a controlled manner.
+
+```cpp
+class LifecycleNode : public rclcpp_lifecycle::LifecycleNode
+{
+public:
+    LifecycleNode() : rclcpp_lifecycle::LifecycleNode("lifecycle_node") {}
+
+    rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn
+    on_configure(const rclcpp_lifecycle::State &)
+    {
+        // Initialize resources
+        return rclcpp_lifecycle::node_interfaces::LifecycleNodeInterface::CallbackReturn::SUCCESS;
+    }
+};
+```
+
+## Node Composition
+
+Node composition allows multiple nodes to run within the same process, reducing communication overhead and improving performance.
+
+## Parameter Management
+
+ROS 2 provides sophisticated parameter management capabilities including dynamic parameter reconfiguration.
+
+## Summary
+
+This chapter covered advanced ROS 2 concepts that are essential for building robust and scalable robotic applications.
