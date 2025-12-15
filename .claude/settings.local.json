@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git fetch:*)",
+      "Bash(ls:*)",
+      "Bash(.specify/scripts/powershell/create-new-feature.ps1:*)",
+      "Bash(git checkout:*)",
+      "Bash(mkdir:*)",
+      "Bash(.specify/scripts/bash/create-phr.sh:*)",
+      "Bash(.specify/scripts/powershell/setup-plan.ps1:*)",
+      "Bash(git rev-parse:*)",
+      "Bash(npx create-docusaurus@latest:*)",
+      "Bash(npm install:*)",
+      "Bash(npx tailwindcss:*)",
+      "Bash(node:*)",
+      "Bash(npm run tailwind-init)",
+      "Bash(npm start)",
+      "Bash(npm start:*)",
+      "Bash(netstat:*)",
+      "Bash(findstr:*)",
+      "Bash(npx docusaurus start --port 3001)",
+      "Bash(claude mcp list)",
+      "Bash(claude mcp add --help:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}
